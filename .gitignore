@@ -1,0 +1,29 @@
+# Only code and documentation are kept in this repository. Everything else is ignored:
+# third-party tools and models (download them, see README), video clips and renders (real people),
+# character references and builds (copyrighted or personal), and run outputs.
+
+# Ignore everything...
+/*
+!/.gitignore
+!/README.md
+
+# ...except the pipeline code
+!/pipeline/
+/pipeline/runs/
+/pipeline/claude_session.txt
+/pipeline/tests/requests.jsonl
+__pycache__/
+*.pyc
+
+# ...and the scripts of each test (but nothing else in those folders)
+!/tests/
+/tests/*
+!/tests/joyce/
+/tests/joyce/*
+!/tests/joyce/scripts/
+!/tests/joyce_v2/
+/tests/joyce_v2/*
+!/tests/joyce_v2/scripts/
+!/tests/realhead/
+/tests/realhead/*
+!/tests/realhead/scripts/
