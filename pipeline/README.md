@@ -9,6 +9,14 @@ hands any step it can't get right to Claude Code, which can fix the scripts.
    against `targets.json`:
    `track_video`, `inspect_clip`, `clean_tracking`, `retarget`, `clear_arms`, `render_motion`,
    `score_motion`, `render_compare`.
+   Two more finish a character for game engines, using scripts from blender-ai-plugin
+   (`engine/third_party/blender_ai_plugin/`, run inside Blender by `blender_bridge.py`):
+   - `check_character`: skinning and rig audit. Targets: no unweighted vertices, at most 4 bone
+     influences per vertex, every left bone has a right partner.
+   - `export_engines`: Unity FBX, Godot GLB, Unreal FBX and USD, with the animation. The FBX and
+     GLB files are read back to confirm that every bone and mesh arrived.
+   Run either one alone, for example:
+   `tools\pose-env\Scripts\python.exe -I pipeline\run_tool.py export_engines "{\"character\": \"<rigged.blend>\", \"run\": \"<name>\"}"`
 2. **The driver** (`agent.py`) runs those tools, in one of two modes:
    - `--mode plan`: the standard order, no model needed. A step that fails is retried once, and then handed off.
    - `--mode llm`: a cheap model chooses each step and its settings, reads the scores, and

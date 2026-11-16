@@ -31,6 +31,17 @@ and in `pipeline/tools.py`):
 | `tools/face-model/face_landmarker.task` | MediaPipe face tracker | https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task |
 | `tools/human-base-meshes/` | Blender Studio Human Base Meshes v1.4.1 (CC0) | https://download.blender.org/demo/asset-bundles/human-base-meshes/ |
 
+Optional, to let Claude Code work in an open Blender window (Blender Lab's official MCP server, v1.0.3):
+
+| Path | What | Where to get it |
+|---|---|---|
+| Blender add-on | `mcp-1.0.3.zip` | https://projects.blender.org/lab/blender_mcp/releases. Install with `blender -b -c extension install-file -r user_default -e mcp-1.0.3.zip` |
+| `tools/blender-mcp-env/` | the server | `git clone --depth 1 --branch v1.0.3 https://projects.blender.org/lab/blender_mcp.git`, then `python -m venv tools/blender-mcp-env` and `tools/blender-mcp-env/Scripts/pip install blender_mcp/mcp` |
+| Claude Code | register it | `claude mcp add blender --scope user --env BLENDER_PATH=<blender.exe> -- <tools\blender-mcp-env\Scripts\blender-mcp.exe>` |
+
+Start Blender with `pipeline\start_blender_mcp.ps1 [file.blend]`. The server lets an AI run any Python in
+Blender, so only run it while you use it.
+
 Reference images and video clips aren't included; use your own, or ones you have the rights to.
 
 ## Quick start

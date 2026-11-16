@@ -15,6 +15,9 @@
 __pycache__/
 *.pyc
 
+# ...and engine scripts kept from other projects (each with its licence)
+!/engine/
+
 # ...and the scripts of each test (but nothing else in those folders)
 !/tests/
 /tests/*

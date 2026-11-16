@@ -192,8 +192,78 @@ def render_compare(character, reference, pose="stand", azimuth=38, run="checks")
                    {"compare": f"{prefix}_compare.png", "render": f"{prefix}_render.png"})
 
 
+# ---------------------------------------------------------------- engine scripts (blender-ai-plugin, MIT)
+VENDOR = ROOT / "engine" / "third_party" / "blender_ai_plugin"
+BRIDGE = ROOT / "pipeline" / "blender_bridge.py"
+
+
+def _bridge(blend, steps, name, timeout=3600, **extra):
+    jobs = run_dir(name) / f"bridge_{steps[0]['name']}.json"
+    jobs.write_text(json.dumps({"steps": steps, **extra}), encoding="utf-8")
+    code, text, s = _blender(BRIDGE, Path(blend), [jobs], timeout)
+    return code, text, s, (_json_after(text, "BRIDGE_RESULT") or {})
+
+
+def _character_parts(blend, name):
+    """The rig and every mesh it moves, read from the file."""
+    probe = run_dir(name) / "parts.py"
+    probe.write_text("import bpy, json\nrig = next((o for o in bpy.data.objects if o.type == 'ARMATURE'), None)\n"
+                     "meshes = [o.name for o in bpy.data.objects if o.type == 'MESH' and (o.parent == rig or any("
+                     "m.type == 'ARMATURE' for m in o.modifiers))]\n"
+                     "print('PARTS ' + json.dumps({'rig': rig.name if rig else None, 'meshes': meshes}))\n", encoding="utf-8")
+    code, text, s = _run([BLENDER, "--background", Path(blend), "--python", probe], 600)
+    return _json_after(text, "PARTS") or {"rig": None, "meshes": []}
+
+
+def check_character(character, run="checks", max_influences=4):
+    """Game-readiness audit of a rigged character: skinning, influences per vertex, symmetry, mesh problems."""
+    parts = _character_parts(character, run)
+    steps = [{"name": "rig_check", "script": str(VENDOR / "rig_check.py"),
+              "args": {"armature": parts["rig"], "max_influences": max_influences}},
+             {"name": "validate", "script": str(VENDOR / "validate_asset.py"),
+              "args": {"objects": parts["meshes"], "prefix": ""}}]
+    code, text, s, res = _bridge(character, steps, run)
+    rig = res.get("rig_check", {})
+    meshes = rig.get("meshes", {}) if isinstance(rig, dict) else {}
+    val = res.get("validate", {}) if isinstance(res.get("validate"), dict) else {}
+    failed = [f"{n}: {c}" for n, o in val.get("objects", {}).items() for c, r in o.get("checks", {}).items()
+              if r.get("status") == "FAIL"]
+    metrics = {"bones": rig.get("bones"), "meshes": len(parts["meshes"]),
+               "unweighted_vertices": sum(m.get("unweighted_vertices", 0) for m in meshes.values()),
+               "vertices_over_max_influences": sum(m.get("vertices_over_4_influences", 0) for m in meshes.values()),
+               "unpaired_side_bones": len(rig.get("unpaired_side_bones", []) or []),
+               "mesh_check_failures": len(failed)}
+    result = _result("check_character", {"character": str(character)}, code, text, s, metrics, {})
+    result["details"] = failed[:20]
+    return result
+
+
+def export_engines(character, run, animation=True, engines=("unity", "godot", "unreal", "usd")):
+    """Export the character, with its animation, for Unity (FBX), Godot (GLB), Unreal (FBX) and USD."""
+    d = run_dir(run)
+    parts = _character_parts(character, run)
+    objs = [parts["rig"]] + parts["meshes"] if parts["rig"] else parts["meshes"]
+    stem = Path(character).stem
+    plan = {"unity": ("export_unity.py", {"objects": objs, "out_path": str(d / f"{stem}_unity.fbx"), "animation": animation, "strict": False}),
+            "godot": ("export_godot.py", {"objects": objs, "out_path": str(d / f"{stem}_godot.glb"), "animation": animation}),
+            "unreal": ("export_asset.py", {"objects": objs, "engine": "unreal", "out_path": str(d / f"{stem}_unreal.fbx"), "animation": animation}),
+            "usd": ("export_asset.py", {"objects": objs, "engine": "generic", "out_path": str(d / f"{stem}.usdc"), "animation": animation})}
+    steps = [{"name": e, "script": str(VENDOR / plan[e][0]), "args": plan[e][1]} for e in engines]
+    code, text, s, res = _bridge(character, steps, run)
+    files, metrics = {}, {}
+    for e in engines:
+        r = res.get(e, {}) if isinstance(res.get(e), dict) else {}
+        path = r.get("path") or plan[e][1]["out_path"]
+        ok = bool(r.get("exported", r.get("exists"))) and not r.get("error")
+        metrics[f"{e}_ok"] = int(ok)
+        if ok:
+            files[e] = path
+            metrics[f"{e}_mb"] = round(Path(path).stat().st_size / 1e6, 1) if Path(path).exists() else None
+    return _result("export_engines", {"character": str(character), "run": run}, code, text, s, metrics, files)
+
+
 TOOLS = {f.__name__: f for f in (track_video, inspect_clip, clean_tracking, retarget, clear_arms, render_motion,
-                                 score_motion, render_compare)}
+                                 score_motion, render_compare, check_character, export_engines)}
 
 # Descriptions for the model, in the OpenAI-compatible "tools" format.
 SCHEMAS = [
@@ -214,4 +284,9 @@ SCHEMAS = [
     {"name": "render_compare", "description": render_compare.__doc__, "parameters": {"type": "object", "properties": {
         "character": {"type": "string"}, "reference": {"type": "string"}, "pose": {"type": "string"},
         "azimuth": {"type": "number"}}, "required": ["character", "reference"]}},
+    {"name": "check_character", "description": check_character.__doc__, "parameters": {"type": "object", "properties": {
+        "character": {"type": "string"}, "max_influences": {"type": "integer"}}, "required": ["character"]}},
+    {"name": "export_engines", "description": export_engines.__doc__, "parameters": {"type": "object", "properties": {
+        "character": {"type": "string"}, "run": {"type": "string"}, "animation": {"type": "boolean"}},
+        "required": ["character", "run"]}},
 ]

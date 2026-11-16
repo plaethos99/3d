@@ -1,9 +1,100 @@
 {
-  "track_video": {"tracked_share": [">=", 0.9]},
-  "inspect_clip": {"whole_body_share": [">=", 0.9]},
-  "retarget": {"planted_foot_slip_mm": ["<=", 10], "lowest_shoe_mm": [">=", -5], "highest_lowest_shoe_mm": ["<=", 20]},
-  "clear_arms": {"median_move_mm": ["<=", 150]},
-  "render_motion": {"rendered": [">=", 1]},
-  "score_motion": {"thigh": ["<=", 12], "shin": ["<=", 15], "trunk": ["<=", 12], "upper arm": ["<=", 25], "forearm": ["<=", 30]},
-  "render_compare": {"outline_overlap": [">=", 0.85]}
+ "track_video": {
+  "tracked_share": [
+   ">=",
+   0.9
+  ]
+ },
+ "inspect_clip": {
+  "whole_body_share": [
+   ">=",
+   0.9
+  ]
+ },
+ "retarget": {
+  "planted_foot_slip_mm": [
+   "<=",
+   10
+  ],
+  "lowest_shoe_mm": [
+   ">=",
+   -5
+  ],
+  "highest_lowest_shoe_mm": [
+   "<=",
+   20
+  ]
+ },
+ "clear_arms": {
+  "median_move_mm": [
+   "<=",
+   150
+  ]
+ },
+ "render_motion": {
+  "rendered": [
+   ">=",
+   1
+  ]
+ },
+ "score_motion": {
+  "thigh": [
+   "<=",
+   12
+  ],
+  "shin": [
+   "<=",
+   15
+  ],
+  "trunk": [
+   "<=",
+   12
+  ],
+  "upper arm": [
+   "<=",
+   25
+  ],
+  "forearm": [
+   "<=",
+   30
+  ]
+ },
+ "render_compare": {
+  "outline_overlap": [
+   ">=",
+   0.85
+  ]
+ },
+ "check_character": {
+  "unweighted_vertices": [
+   "<=",
+   0
+  ],
+  "vertices_over_max_influences": [
+   "<=",
+   0
+  ],
+  "unpaired_side_bones": [
+   "<=",
+   0
+  ]
+ },
+ "export_engines": {
+  "unity_ok": [
+   ">=",
+   1
+  ],
+  "godot_ok": [
+   ">=",
+   1
+  ],
+  "unreal_ok": [
+   ">=",
+   1
+  ],
+  "usd_ok": [
+   ">=",
+   1
+  ]
+ }
 }
