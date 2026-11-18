@@ -1,9 +1,10 @@
 """Blend a baked photo face into a Human Generator skin texture (step 2b; pose-env python, -I).
 
-Usage: python face_blend.py <face_dir> <base_texture.png> <out_texture.png> [--feather 14] [--tone face|body|detail] [--chroma 0.35]
-       [--sigma 90] [--lips 0.75]
+Usage: python face_blend.py <face_dir> <base_texture.png | folder of HG skins> <out_texture.png> [--feather 14] [--tone face|body|detail] [--chroma 0.35]
+       [--sigma 40] [--lips 0.75]
 face_dir: face_bake.py's (bake_colour.png, bake_coverage.png, bake_hair.png if present).
-Mask: where the photos saw skin (coverage), not hair, shrunk a little and feathered.
+Mask: where the photos saw the face (any coverage), not hair (hair mask), gaps closed and holes filled, shrunk a
+little and feathered; around the eyes HG's own skin is kept (photo lids land a little off and show as rims).
 Tone (one skin tone everywhere): with --tone face (default) HG's whole texture is shifted, per colour channel in
 linear light, so its skin just inside the face edge matches the photo's there (the person's own tone):
 brightness fully, colour by --chroma (a photo's colour cast is mostly its lighting); with
@@ -43,6 +44,12 @@ def read(path, n):
     return im.astype(np.float32) / (65535.0 if im.dtype == np.uint16 else 255.0)
 
 
+candidates = None
+if os.path.isdir(base_path):  # a folder of HG skins: the one closest in tone to the photo is picked below
+    import glob
+    candidates = sorted(p for p in glob.glob(os.path.join(base_path, "*.png"))
+                        if os.path.basename(p)[:1].isupper() and "edited" not in p and "face_" not in p)
+    base_path = candidates[0]
 base = read(base_path, cv2.imread(base_path, cv2.IMREAD_UNCHANGED).shape[0])
 n = base.shape[0]
 base_rgb = base[..., :3][..., ::-1]
@@ -50,29 +57,64 @@ face = read(os.path.join(face_dir, "bake_colour.png"), n)
 face_rgb, face_a = face[..., :3][..., ::-1], face[..., 3]
 cov = read(os.path.join(face_dir, "bake_coverage.png"), n)[..., 0]
 hair = read(os.path.join(face_dir, "bake_hair.png"), n)
-m = np.clip((cov - 0.3) / 0.4, 0, 1) * (face_a > 0.5)
-if hair is not None:
-    m *= 1 - np.clip((hair[..., 0] - 0.2) / 0.5, 0, 1)
 k = max(3, int(round(feather * n / 4096)))
-hard = (m > 0.5).astype(np.uint8)
+# Where the photos saw the face (any coverage at all: stills see the sides only at a slant), not hair. Hair is
+# decided by the hair mask alone (a darkness rule took the eyebrows with it). Gaps (the nose's sides, around the
+# mouth) are closed, holes (eyes, nostrils) filled: the face as one piece.
+hairm = np.zeros((n, n), np.uint8)
+if hair is not None:
+    hairm = cv2.dilate((hair[..., 0] > 0.35).astype(np.uint8), np.ones((k, k), np.uint8))
+hard = ((cov > 0.08) & (face_a > 0.5) & (hairm == 0)).astype(np.uint8)
 hard = cv2.morphologyEx(hard, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-# stray hair at the edge: texels much darker than the face's skin are dropped (brows, lashes and other dark
-# spots inside the face come back below, when the holes are filled)
-lum = (face_rgb * [0.2126, 0.7152, 0.0722]).sum(2)
-hard[(lum < 0.6 * np.median(lum[hard > 0]))] = 0
-hard = cv2.morphologyEx(hard, cv2.MORPH_OPEN, np.ones((2 * k + 1, 2 * k + 1), np.uint8))
-# the face only: its largest piece, holes (eyes, mouth slit, nostrils, brows) filled
-cnt, lab, stats, _ = cv2.connectedComponentsWithStats(hard, 8)
-if cnt > 1:
-    hard = (lab == 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))).astype(np.uint8)
-contours, _ = cv2.findContours(hard, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-hard = cv2.drawContours(np.zeros_like(hard), contours, -1, 1, thickness=cv2.FILLED)
+
+
+def one_piece(h):
+    cnt_, lab_, stats_, _ = cv2.connectedComponentsWithStats(h, 8)
+    if cnt_ > 1:
+        h = (lab_ == 1 + int(np.argmax(stats_[1:, cv2.CC_STAT_AREA]))).astype(np.uint8)
+    cs, _ = cv2.findContours(h, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    return cv2.drawContours(np.zeros_like(h), cs, -1, 1, thickness=cv2.FILLED)
+
+
+hard = one_piece(hard)
+hard = cv2.morphologyEx(hard, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (10 * k + 1, 10 * k + 1)))
+hard = one_piece(hard)
+hard[hairm > 0] = 0
+hard = one_piece(cv2.morphologyEx(hard, cv2.MORPH_OPEN, np.ones((2 * k + 1, 2 * k + 1), np.uint8)))
 hard = cv2.erode(hard, np.ones((k, k), np.uint8))
 mask = cv2.GaussianBlur(hard.astype(np.float32), (0, 0), k)
 inner = (hard > 0) & (cv2.erode(hard, np.ones((6 * k, 6 * k), np.uint8)) == 0)  # a band just inside the edge
-bl, fl = to_lin(base_rgb), to_lin(face_rgb)
+fl = to_lin(face_rgb)
 if inner.sum() < 100:
     raise SystemExit("FACE_BLEND_FAILED: almost no face found in the bake")
+if candidates:  # closest skin: brightness and colour (log ratios) of the face's edge band, photo vs each skin
+    want = np.log(np.median(fl[inner], axis=0) + 1e-4)
+    scores = []
+    for cpath in candidates:
+        c = read(cpath, n)[..., :3][..., ::-1]
+        have = np.log(np.median(to_lin(c)[inner], axis=0) + 1e-4)
+        d = want - have
+        # mostly the skin's colour (channel ratios); brightness counts little: it is mostly the photo's lighting
+        scores.append((float(0.25 * np.abs(d.mean()) + 2.0 * np.abs(d - d.mean()).sum()), cpath, c))
+    scores.sort(key=lambda t: t[0])
+    print("SKINS", [(os.path.basename(p), round(sc, 3)) for sc, p, _ in scores])
+    _, base_path, base_rgb = scores[0]
+    base = read(base_path, n)
+    print("SKIN_PICKED", os.path.basename(base_path))
+bl = to_lin(base_rgb)
+# around the eyes HG's own skin stays: the photo's lids land a little off HG's and show as pink or dark rims.
+# The eye openings are the two biggest darker pieces of HG's texture in the upper half of the face.
+lum_b = (base_rgb * [0.2126, 0.7152, 0.0722]).sum(2)
+dark = ((lum_b < 0.85 * np.median(lum_b[hard > 0])) & (hard > 0)).astype(np.uint8)
+dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.ones((k, k), np.uint8))
+cnt_d, lab_d, st_d, cen_d = cv2.connectedComponentsWithStats(dark, 8)
+face_cy = np.where(hard > 0)[0].mean()
+eyes = [i for i in range(1, cnt_d) if cen_d[i][1] < face_cy and st_d[i, cv2.CC_STAT_AREA] > 4 * k * k]
+eyes = sorted(eyes, key=lambda i: -st_d[i, cv2.CC_STAT_AREA])[:2]
+if eyes:
+    zone = cv2.dilate(np.isin(lab_d, eyes).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5 * k + 1, 5 * k + 1)))
+    mask = mask * (1 - cv2.GaussianBlur(zone.astype(np.float32), (0, 0), k))
+    print("EYES kept from HG:", len(eyes), "areas", [int(st_d[i, cv2.CC_STAT_AREA]) for i in eyes])
 gain = np.median(fl[inner], axis=0) / np.maximum(np.median(bl[inner], axis=0), 1e-4)
 # brightness fully, colour only partly: a photo's colour cast is mostly its light, not the skin
 W = np.array([0.2126, 0.7152, 0.0722])
@@ -84,7 +126,8 @@ if tone == "face":
 elif tone == "body":
     fl = fl / gain
 else:  # "detail": the photo's detail on HG's own broad colour: no patch, one skin tone (HG's texture choice)
-    sig = float(sys.argv[sys.argv.index("--sigma") + 1]) if "--sigma" in sys.argv else 90.0
+    # finer than the photo's lighting (shadows under the eyes, beside the mouth) but coarser than brows, lips, creases
+    sig = float(sys.argv[sys.argv.index("--sigma") + 1]) if "--sigma" in sys.argv else 40.0
     sig *= n / 4096
     M = (hard > 0).astype(np.float32)
     Mb = cv2.GaussianBlur(M, (0, 0), sig) + 1e-4

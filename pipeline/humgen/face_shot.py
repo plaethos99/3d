@@ -1,7 +1,8 @@
 """Render a straight-on face close-up of a saved HG human (to compare with a photo, measure with MediaPipe).
 
-Usage: blender -b <human.blend> -P pipeline/humgen/face_shot.py -- <out.png> [--yaw 0] [--size 900x1200]
-Camera at the eyes' height, 85 mm lens, the head filling about 60% of the height; soft front light.
+Usage: blender -b <human.blend> -P pipeline/humgen/face_shot.py -- <out.png> [--yaw 0] [--size 900x1200] [--exposure 0]
+Camera at the eyes' height, 85 mm lens, the head filling about 60% of the height; soft front light;
+Standard view transform (like a photo, not AgX).
 Prints FACE_SHOT_OK.
 """
 import math
@@ -46,6 +47,11 @@ for mt in bpy.data.materials:  # Eevee renders HG's refracting dithered cornea a
         mt.surface_render_method = "BLENDED"
         mt.use_raytrace_refraction = False
 sc.render.engine = "BLENDER_EEVEE"
+# photos are plain sRGB: Blender's default AgX view washes out colour, so compare under "Standard"
+sc.view_settings.view_transform = "Standard"
+sc.view_settings.look = "None"
+# --exposure EV: brightness is the lighting's, not the skin's: a comparison matches the photo's exposure here
+sc.view_settings.exposure = float(argv[argv.index("--exposure") + 1]) if "--exposure" in argv else 0.0
 if hasattr(sc.eevee, "use_raytracing"):  # the eyes' cornea refracts: Eevee needs ray tracing for it
     sc.eevee.use_raytracing = True
 sc.eevee.taa_render_samples = 128

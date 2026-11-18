@@ -248,6 +248,95 @@ class SkinNodes(_CollectionProxy):
     ),
 ]
 
+PATCHES += [
+    # Blender 4.0 renamed Principled BSDF inputs ("Specular" -> "Specular IOR Level", ...): look names up through a map
+    (
+        "human/process/bake.py",
+        '''    return next(
+        (
+            node_links.from_socket
+            for node_links in target_node.inputs[target_socket].links  # type:ignore
+        ),
+        None,
+    )
+''',
+        '''    return next(
+        (
+            node_links.from_socket
+            for node_links in target_node.inputs[_socket_name(target_node, target_socket)].links  # type:ignore
+        ),
+        None,
+    )
+
+
+_RENAMED = {"Specular": "Specular IOR Level", "Subsurface": "Subsurface Weight", "Clearcoat": "Coat Weight",
+            "Sheen": "Sheen Weight", "Transmission": "Transmission Weight", "Emission": "Emission Color"}
+
+
+def _socket_name(node, name):
+    """The input's name in this Blender (4.0 renamed several Principled BSDF inputs)."""
+    if isinstance(name, str) and name not in node.inputs and _RENAMED.get(name) in node.inputs:
+        return _RENAMED[name]
+    return name
+''',
+        "Principled BSDF inputs renamed in Blender 4.0 (bake)",
+    ),
+    (
+        "human/process/bake.py",
+        '''            links.new(
+                normal_node.outputs[0],  # type:ignore[index]
+                principled.inputs[input_type],  # type:ignore
+            )
+        else:
+            links.new(
+                img_node.outputs[0], principled.inputs[input_type]  # type:ignore
+            )''',
+        '''            links.new(
+                normal_node.outputs[0],  # type:ignore[index]
+                principled.inputs[_socket_name(principled, input_type)],  # type:ignore
+            )
+        else:
+            links.new(
+                img_node.outputs[0], principled.inputs[_socket_name(principled, input_type)]  # type:ignore
+            )''',
+        "Principled BSDF inputs renamed in Blender 4.0 (baked materials)",
+    ),
+    (
+        "human/process/bake.py",
+        '''                mat.blend_method = "BLEND"
+                mat.shadow_method = "CLIP"''',
+        '''                if hasattr(mat, "surface_render_method"):  # Blender 4.2+
+                    mat.surface_render_method = "BLENDED"
+                else:
+                    mat.blend_method = "BLEND"
+                    mat.shadow_method = "CLIP"''',
+        "blend_method/shadow_method replaced in Blender 4.2",
+    ),
+    # eye hair systems (brows) hidden: nothing converted, hc never set
+    (
+        "human/hair/basehair.py",
+        '''        hair_objs: list[bpy.types.Object] = []
+''',
+        '''        hair_objs: list[bpy.types.Object] = []
+        hc = None
+''',
+        "convert_to_haircards: no visible system left hc unset",
+    ),
+    (
+        "human/hair/basehair.py",
+        '''            hair_objs.append(cap_obj)
+
+        hc.set_node_values(self._human)
+''',
+        '''            hair_objs.append(cap_obj)
+
+        if hc:
+            hc.set_node_values(self._human)
+''',
+        "convert_to_haircards: nothing converted, no node values to set",
+    ),
+]
+
 # files added to the add-on: (source next to this file, destination inside the add-on)
 EXTRA_FILES = [("addon_extra/smooth_deform.py", "common/smooth_deform.py")]
 

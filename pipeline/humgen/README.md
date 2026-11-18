@@ -65,6 +65,19 @@ blender -b -P pipeline/humgen/make_human.py -- <out> --preset Emma --reset-body 
    photo's detail on HG's broad skin colour (no patch). The result is an HG skin texture option.
 4. make_human: the face slider on (preset face sliders off), the new skin, the photo's own brows.
 
+### All of it in one command
+
+```
+python pipeline/humgen/photo_character.py tests/face/flow_woman tests/humgen/photo_char_flow_woman --name flow_woman --body tests/body/flow_woman
+```
+
+Runs the steps above, then takes the values from measurements instead of hand-picking them: the HG skin closest
+in colour to the photo's, height from the body run, hair colour from the face run, and three rounds of render ->
+measure (MediaPipe, `measure_eyes.py`, `measure_skin.py`) -> correct for iris colour, eye-white colour and skin
+saturation. The comparison shot (`face_shot.py`) uses the Standard view (AgX washes out colour) and an exposure
+that follows the photo's; eyes are compared relative to the skin so exposure doesn't matter. Still chosen by flags:
+hairstyle, outfit, shoes, body preset. Writes values.json and compare.jpg (about 4 minutes).
+
 ## Known Blender 5.2 issues
 
 Fixed in `compat.py`: `eevee.use_gtao`, bpy collection subclassing (crashed Blender), bone groups, bone

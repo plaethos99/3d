@@ -8,7 +8,9 @@ Usage: blender -b -P pipeline/humgen/make_human.py -- <out_dir> [--gender female
   --reset-body  zero the preset's body proportions, height and ageing keys (adult offsets; use for children)
   --brows none|name  hide HG's strand eyebrows (photo faces bring their own) or keep one system
   --iris "#RRGGBB"  eye colour;  --height-cm 165  body height
-  --sclera "#C9BBB0"  eye-white colour;  --lash-dark 0.02  lash lightness;  --lash-length 0.75  lash length factor
+  --sclera "#C9BBB0"  eye-white colour;  --lash-dark 0.02  lash lightness;  --lash-length 0.75  lash length factor;
+  --lash-thin 0.35  lash strand thickness factor (this, not length, makes lashes read fine)
+  --hair-lightness x --hair-redness x  HG's hair colour values
   --fixed-camera  same framing for everyone (0.95 m target, 3.6 m away): for lineups
   --face-scale x  multiply the preset's face sliders (0.5 softens adult features for a child)
   --gown "#RRGGBB" [--gown-flare 1.0]  make the outfit's dress a floor-length flared gown in that colour
@@ -173,10 +175,14 @@ def _lin(hexstr):
                  for c in (int(hx[k:k + 2], 16) / 255 for k in (0, 2, 4)))
 
 
+for name in ("lightness", "redness"):  # after the hairstyle: HG's hair shader values
+    if f"--hair-{name}" in opts:
+        getattr(human.hair.regular_hair, name).value = float(opts[f"--hair-{name}"])
+        report[f"hair_{name}"] = float(opts[f"--hair-{name}"])
 if "--sclera" in opts:  # HG's whites are near pure white: real eye whites are dimmer and warm
     human.eyes.sclera_color.value = (*_lin(opts["--sclera"]), 1)
     report["sclera"] = opts["--sclera"]
-if "--lash-dark" in opts or "--lash-length" in opts:
+if "--lash-dark" in opts or "--lash-length" in opts or "--lash-thin" in opts:
     lashes = human.hair.eyelashes
     if "--lash-dark" in opts:
         lashes.lightness.value = float(opts["--lash-dark"])
@@ -187,8 +193,11 @@ if "--lash-dark" in opts or "--lash-length" in opts:
             if m.type == "PARTICLE_SYSTEM" and m.particle_system.name.startswith("Eyelash"):
                 st = m.particle_system.settings  # HG lashes: edited guide strands with children
                 st.child_length = st.child_length * f
-                st.radius_scale = st.radius_scale * 0.7  # thinner too
-    report["lashes"] = {k: opts[k] for k in ("--lash-dark", "--lash-length") if k in opts}
+    if "--lash-thin" in opts:  # strand thickness: what makes lashes read fine or heavy (length barely shows)
+        for m in human.objects.body.modifiers:
+            if m.type == "PARTICLE_SYSTEM" and m.particle_system.name.startswith("Eyelash"):
+                m.particle_system.settings.radius_scale *= float(opts["--lash-thin"])
+    report["lashes"] = {k: opts[k] for k in ("--lash-dark", "--lash-length", "--lash-thin") if k in opts}
 if "--height-cm" in opts:
     human.height.set(float(opts["--height-cm"]))
     report["height_cm_set"] = float(opts["--height-cm"])
