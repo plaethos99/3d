@@ -6,8 +6,8 @@ Writes <out_dir>/model.glb and model.json:
            names in the .glb are "m:<key>"; a slider at value v shows the morph at weight v - current
   objects: which mesh in the .glb is the body / clothes / hair (clothes can't follow body morphs live: the
            viewer hides them while body sliders are off their applied values; Apply rebuilds them)
-Steps: hair (head, brows, lashes) to hair cards (a browser can't draw Blender's strand hair); skin, eyes and clothes
-baked to textures (Blender's procedural shaders don't export); the body's shape keys mixed into its base shape;
+Steps: skin, eyes and clothes baked to textures (Blender's procedural shaders don't export); hair (head, brows) to
+hair cards with HG's hair-card texture sheets tinted to the hair colour (a browser can't draw strand hair); the body's shape keys mixed into its base shape;
 each HG livekey (face, body, child ages) added back as a morph relative to that base; glTF export with skin and
 morphs. Prints EXPORT_MODEL_OK.
 """
@@ -103,16 +103,127 @@ for kind in ("outfit", "footwear"):
 outfit_now = {"outfit": getattr(human.clothing.outfit, "_active", None),
               "footwear": getattr(human.clothing.footwear, "_active", None)}
 
-# --- hair to hair cards ---
+# --- textures ---
+bk = human.process.baking
+bk.resolution_body = tex
+bk.resolution_clothes = tex
+bk.resolution_eyes = max(256, tex // 4)
+bake_dir = os.path.join(out, "textures")
+os.makedirs(bake_dir, exist_ok=True)
+bk.bake_all(bake_dir, samples, context=ctx)
+print(f"bake done ({time.time() - t0:.0f}s)")
+
+# --- hair to hair cards (after the bake: HG's hair-card shader doesn't bake cleanly) ---
+# Each card gets a plain material a browser can draw: HG's own hair-card texture sheets (strand transparency,
+# shading, normals: content/hair/haircards), tinted to the character's hair colour, with a hard alpha cut-off.
+HC_DIR = os.path.join(get_prefs().filepath, "hair", "haircards")
+
+
+def hair_linear_rgb(setting):
+    """Roughly the colour HG's hair shader gives for its lightness and redness."""
+    L = min(max(float(setting.lightness.value), 0.0), 1.0)
+    R = min(max(float(setting.redness.value), 0.0), 1.0)
+    dark, blond, red = np.array([0.012, 0.009, 0.007]), np.array([0.62, 0.45, 0.24]), np.array([0.30, 0.09, 0.03])
+    c = dark + (blond - dark) * L ** 1.4
+    return c * (1 - 0.45 * R) + red * (0.45 * R) * (0.25 + L)
+
+
+def load_image(name):
+    path = os.path.join(HC_DIR, name)
+    return bpy.data.images.load(path, check_existing=True) if os.path.exists(path) else None
+
+
+def hair_card_material(rgb):
+    ao, alpha, normal = (load_image(f"HairMediumLength_{k}.png") for k in ("AO", "ALPHA", "NORMAL"))
+    w, h = alpha.size
+    A = np.empty(w * h * 4, np.float32)
+    alpha.pixels.foreach_get(A)
+    if tuple(ao.size) != (w, h):
+        ao.scale(w, h)
+    O = np.empty(w * h * 4, np.float32)
+    ao.pixels.foreach_get(O)
+    shade = O.reshape(-1, 4)[:, :1] * 0.8 + 0.2
+    lin = np.clip(shade * rgb[None, :], 0, 1)
+    srgb = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * np.power(lin, 1 / 2.4) - 0.055)
+    img = bpy.data.images.new("hair_cards_colour", w, h, alpha=True, float_buffer=False)
+    img.colorspace_settings.name = "sRGB"
+    img.pixels.foreach_set(np.concatenate([srgb, A.reshape(-1, 4)[:, :1]], 1).astype(np.float32).ravel())
+    os.makedirs(out_dir_tex, exist_ok=True)
+    img.filepath_raw = os.path.join(out_dir_tex, "hair_cards_colour.png")
+    img.file_format = "PNG"
+    img.save()
+    mat = bpy.data.materials.new("Hair_Cards")
+    nt = mat.node_tree
+    bsdf = nt.nodes["Principled BSDF"]
+    t = nt.nodes.new("ShaderNodeTexImage")
+    t.image = img
+    nt.links.new(t.outputs["Color"], bsdf.inputs["Base Color"])
+    cut = nt.nodes.new("ShaderNodeMath")  # a "greater than" on alpha: glTF's MASK mode (hard cut-off)
+    cut.operation = "GREATER_THAN"
+    cut.inputs[1].default_value = 0.35
+    nt.links.new(t.outputs["Alpha"], cut.inputs[0])
+    nt.links.new(cut.outputs[0], bsdf.inputs["Alpha"])
+    if normal:
+        normal.colorspace_settings.name = "Non-Color"
+        tn = nt.nodes.new("ShaderNodeTexImage")
+        tn.image = normal
+        nm = nt.nodes.new("ShaderNodeNormalMap")
+        nt.links.new(tn.outputs["Color"], nm.inputs["Color"])
+        nt.links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
+    bsdf.inputs["Roughness"].default_value = 0.5
+    mat.use_backface_culling = False
+    return mat
+
+
+def solid_material(name, rgb):
+    mat = bpy.data.materials.new(name)
+    b = mat.node_tree.nodes["Principled BSDF"]
+    b.inputs["Base Color"].default_value = (*rgb, 1)
+    b.inputs["Roughness"].default_value = 0.6
+    return mat
+
+
+out_dir_tex = os.path.join(out, "textures")
 hair_objs = []
-for name in ("regular_hair", "eyebrows", "eyelashes"):
+hair_rgb = hair_linear_rgb(human.hair.regular_hair)
+# hair length / waves set in the studio: long_hair.py grows the style's strands into cards; HG's own conversion
+# below then keeps only its scalp cap
+hair_len_cm = float(rig.get("studio_hair_length", 0) or 0)
+hair_wave = float(rig.get("studio_hair_wave", 0) or 0)
+long_mode = hair_len_cm > 0 or hair_wave > 0
+if long_mode:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import long_hair
+    from indian import body_world
+
+    Pb, Nb = body_world(human)
+    hair_objs.append(long_hair.build(human, hair_len_cm / 100, hair_wave, hair_rgb, out_dir_tex, Pb, Nb))
+for name in ("regular_hair", "eyebrows"):
     setting = getattr(human.hair, name, None)
-    if setting is None or not setting.modifiers:
+    if setting is None or not any(m.show_viewport for m in setting.modifiers):
         continue
     try:
         before = set(bpy.data.objects)
         setting.convert_to_haircards(quality="high", context=ctx)
         new = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
+        for o in new:
+            for i, slot in enumerate(o.material_slots):
+                mname = slot.material.name if slot.material else ""
+                if "Haircards" in mname:
+                    o.material_slots[i].material = hair_card_material(hair_rgb)
+                else:  # the cap under the hair: the scalp coloured like the hair
+                    o.material_slots[i].material = solid_material("Hair_Cap", hair_rgb * 0.8)
+        for o in new:  # HG's cards carry a colour layer with no alpha: in a viewer it would cut the strands away
+            for a in list(o.data.color_attributes):
+                o.data.color_attributes.remove(a)
+            if long_mode and name == "regular_hair":  # keep only HG's scalp cap: the long cards replace its cards
+                import bmesh as _bm
+                card_slots = {i for i, sl in enumerate(o.material_slots) if sl.material and sl.material.name.startswith("Hair_Cards")}
+                b = _bm.new()
+                b.from_mesh(o.data)
+                _bm.ops.delete(b, geom=[f for f in b.faces if f.material_index in card_slots], context="FACES")
+                b.to_mesh(o.data)
+                b.free()
         hair_objs += new
         print("HAIRCARDS", name, [o.name for o in new])
     except Exception as e:  # noqa: BLE001
@@ -121,16 +232,6 @@ for m in body.modifiers:  # strand hair left on the body would not export anyway
     if m.type == "PARTICLE_SYSTEM":
         m.show_viewport = m.show_render = False
 print(f"hair done ({time.time() - t0:.0f}s)")
-
-# --- textures ---
-bk = human.process.baking
-bk.resolution_body = tex
-bk.resolution_clothes = tex  # hair cards bake at this size too
-bk.resolution_eyes = max(256, tex // 4)
-bake_dir = os.path.join(out, "textures")
-os.makedirs(bake_dir, exist_ok=True)
-bk.bake_all(bake_dir, samples, context=ctx)
-print(f"bake done ({time.time() - t0:.0f}s)")
 
 # --- body: shape keys mixed into the base, then the sliders as morphs relative to it ---
 me = body.data
@@ -214,6 +315,11 @@ bpy.ops.export_scene.gltf(filepath=glb, export_format="GLB", use_active_collecti
 age_now = human.objects.body.get("Age", 30) if hasattr(human.objects.body, "get") else 30
 info = {"gender": gender, "sliders": sliders, "height_cm": round(human.height.centimeters, 1),
         "age": int(age_now), "garments": garments, "current": outfit_now,
+        "hair": {"style": getattr(human.hair.regular_hair, "_active", None),
+                 "length_cm": round(float(rig.get("studio_hair_length", 0) or 0), 1),
+                 "wave": round(float(rig.get("studio_hair_wave", 0) or 0), 2),
+                 "lightness": round(float(human.hair.regular_hair.lightness.value), 3),
+                 "redness": round(float(human.hair.regular_hair.redness.value), 3)},
         "objects": {"body": body.name, "clothes": [o.name for o in clothes], "hair": [o.name for o in hair_objs],
                     "eyes": eyes.name}}
 json.dump(info, open(os.path.join(out, "model.json"), "w"), indent=1)

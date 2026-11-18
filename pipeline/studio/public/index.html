@@ -183,6 +183,7 @@
             <button class="tab on" data-tab="face" role="tab">Face</button>
             <button class="tab" data-tab="body" role="tab">Body</button>
             <button class="tab" data-tab="age" role="tab">Age &amp; height</button>
+            <button class="tab" data-tab="hair" role="tab">Hair</button>
             <button class="tab" data-tab="costume" role="tab">Costume</button>
           </div>
           <div class="tabbody" id="tab-face"></div>
@@ -194,7 +195,33 @@
             <label class="slider"><span>Height <b id="heightVal"></b></span>
               <input type="range" id="heightSlider" min="80" max="200" step="1"></label>
           </div>
+          <div class="tabbody" id="tab-hair" hidden>
+            <h3 class="sub">Long hair</h3>
+            <div class="styles" id="longPresets"></div>
+            <h3 class="sub">Hairstyle</h3>
+            <div class="hairs" id="hairGrid"></div>
+            <h3 class="sub">Length &amp; waves</h3>
+            <label class="slider"><span>Length <b id="hairLenVal"></b></span>
+              <input type="range" id="hairLen" min="0" max="100" step="1"></label>
+            <p class="hint">0 keeps the hairstyle's own length; up to 100 cm (waist length and beyond) from the roots.</p>
+            <label class="slider"><span>Waves <b id="hairWaveVal"></b></span>
+              <input type="range" id="hairWave" min="0" max="1" step="0.05"></label>
+            <h3 class="sub">Hair colour</h3>
+            <label class="slider"><span>Lightness <b id="hairLightVal"></b></span>
+              <input type="range" id="hairLight" min="0" max="1" step="0.01"></label>
+            <label class="slider"><span>Redness <b id="hairRedVal"></b></span>
+              <input type="range" id="hairRed" min="0" max="1" step="0.01"></label>
+            <p class="hint">Hair changes show after Apply.</p>
+          </div>
           <div class="tabbody" id="tab-costume" hidden>
+            <h3 class="sub">Indian</h3>
+            <div class="styles" id="indianStyles"></div>
+            <div id="indianOptions" hidden>
+              <label class="colorrow"><input type="color" id="indMain"><span>Main colour</span></label>
+              <label class="colorrow"><input type="color" id="indAccent"><span id="indAccentLabel">Accent colour</span></label>
+              <p class="hint">Print</p>
+              <div class="hairs" id="indPrints"></div>
+            </div>
             <h3 class="sub">Outfit</h3>
             <div class="hairs" id="outfitGrid"></div>
             <h3 class="sub">Shoes</h3>

@@ -452,13 +452,17 @@ const doLoadModel = async () => {
       while (n && !clothesNames.has(n.name)) n = n.parent;
       if (n && o.isMesh) M.clothes.push(o);
     }
-    if (o.isMesh && o.material && /Haircards/i.test(`${o.parent?.name} ${o.name}`)) {
-      // hair cards: HG's baked strand texture doesn't line up with the cards in this Blender (they come out
-      // see-through), so they're drawn solid in the hair's colour (the texture's strand pixels) for now
-      o.material = new THREE.MeshStandardMaterial({ color: strandColour(o.material.map), roughness: 0.55,
-        side: THREE.DoubleSide });
+    if (o.isMesh && o.material && /Hair_Cards|Hair_Cap/.test(o.material.name)) {
+      // hair cards (export_model.py): strands cut out by alpha, both sides drawn. HG's cards carry a colour layer
+      // with no alpha: used as vertex colours it cuts every strand away, so it's ignored. Soft shine.
+      o.material.vertexColors = false;
+      o.material.side = THREE.DoubleSide;
+      o.material.alphaToCoverage = true;
+      o.material.roughness = 0.75;
+      if (o.material.normalScale) o.material.normalScale.set(0.4, 0.4);
+      o.material.needsUpdate = true;
     } else if (o.isMesh && o.material && /lash/i.test(`${o.name} ${o.material.name}`)) {
-      o.visible = false; // the lash cap bakes empty too; the face texture has the lash line
+      o.visible = false; // the lash cap bakes empty; the face texture has the lash line
     }
   });
   M.box = new THREE.Box3().setFromObject(gltf.scene);
@@ -470,6 +474,12 @@ const doLoadModel = async () => {
   M.outfit = null;
   M.footwear = null;
   M.colors = {};
+  M.hair = null;
+  M.hairLight = M.info.hair?.lightness ?? null;
+  M.hairRed = M.info.hair?.redness ?? null;
+  M.hairLen = M.info.hair?.length_cm ?? 0;
+  M.hairWave = M.info.hair?.wave ?? 0;
+  M.indian = null;
   buildPanels();
   applyMorphs();
   updateApplyBar();
@@ -599,7 +609,91 @@ const buildPanels = () => {
   $('heightSlider').value = Math.round(M.height);
   $('heightVal').textContent = `${Math.round(M.height)} cm`;
   buildCostume();
+  buildHair();
 };
+
+/** Long-hair presets: a base hairstyle grown to a length, with waves (long_hair.py builds them on Apply). */
+const LONG_PRESETS = {
+  female: [['Long straight', 'center part, 70 cm', 'Long\\Medium Center Part.json', 70, 0],
+    ['Long wavy', 'side part, 70 cm, waves', 'Long\\Medium Side Part.json', 70, 0.55],
+    ['Waist-length', 'center part, 95 cm', 'Long\\Medium Center Part.json', 95, 0.1],
+    ['Long curly', '60 cm, strong waves', 'Long\\Medium Side Part.json', 60, 1.0],
+    ['Shoulder length', 'bob grown, 40 cm', 'Long\\Bob Long.json', 40, 0.2]],
+  male: [['Shoulder length', '35 cm', null, 35, 0.15], ['Long straight', '55 cm', null, 55, 0],
+    ['Long wavy', '55 cm, waves', null, 55, 0.6]],
+};
+const buildLongPresets = () => {
+  const box = $('longPresets');
+  box.innerHTML = '';
+  for (const [name, desc, style, len, wave] of LONG_PRESETS[M.info.gender] || []) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const on = M.hairLen === len && Math.abs(M.hairWave - wave) < 0.01 && (!style || M.hair === style || hairKey(M.info.hair?.style) === style);
+    b.className = 'style' + (on ? ' on' : '');
+    b.innerHTML = `<b>${name}</b><span>${desc}</span>`;
+    b.addEventListener('click', () => {
+      if (style && hairKey(M.info.hair?.style) !== style) M.hair = style;
+      M.hairLen = len;
+      M.hairWave = wave;
+      updateApplyBar();
+      buildHair();
+    });
+    box.append(b);
+  }
+};
+
+/** Hair tab: HG's hairstyles (preview pictures) and its hair colour values. */
+const hairKey = (style) => (style || '').replace(/^hair\\head\\(fe)?male\\/, '');
+const buildHair = async () => {
+  buildLongPresets();
+  const list = await hairList(M.info.gender);
+  const box = $('hairGrid');
+  box.innerHTML = '';
+  const now = hairKey(M.info.hair?.style);
+  for (const h of list) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'hair' + (h.id === M.hair ? ' on' : '') + (h.id === now ? ' current' : '');
+    b.title = `${h.category}: ${h.name}`;
+    b.innerHTML = (h.preview ? `<img src="${h.preview}" alt="" loading="lazy">` : '<img alt="">') + `<span>${h.name}</span>`;
+    b.addEventListener('click', () => {
+      M.hair = h.id === now ? null : h.id;
+      updateApplyBar();
+      buildHair();
+    });
+    box.append(b);
+  }
+  $('hairLen').value = M.hairLen;
+  $('hairLenVal').textContent = M.hairLen ? `${M.hairLen} cm` : "style's own";
+  $('hairWave').value = M.hairWave;
+  $('hairWaveVal').textContent = (+M.hairWave).toFixed(2);
+  if (M.hairLight !== null) {
+    $('hairLight').value = M.hairLight;
+    $('hairLightVal').textContent = (+M.hairLight).toFixed(2);
+    $('hairRed').value = M.hairRed;
+    $('hairRedVal').textContent = (+M.hairRed).toFixed(2);
+  }
+};
+$('hairLen').addEventListener('input', () => {
+  M.hairLen = +$('hairLen').value;
+  $('hairLenVal').textContent = M.hairLen ? `${M.hairLen} cm` : "style's own";
+  updateApplyBar();
+});
+$('hairWave').addEventListener('input', () => {
+  M.hairWave = +$('hairWave').value;
+  $('hairWaveVal').textContent = M.hairWave.toFixed(2);
+  updateApplyBar();
+});
+$('hairLight').addEventListener('input', () => {
+  M.hairLight = +$('hairLight').value;
+  $('hairLightVal').textContent = M.hairLight.toFixed(2);
+  updateApplyBar();
+});
+$('hairRed').addEventListener('input', () => {
+  M.hairRed = +$('hairRed').value;
+  $('hairRedVal').textContent = M.hairRed.toFixed(2);
+  updateApplyBar();
+});
 
 $('ageSlider').addEventListener('input', () => {
   M.age = +$('ageSlider').value;
@@ -613,8 +707,58 @@ $('heightSlider').addEventListener('input', () => {
 });
 
 let outfitCache = {};
+const INDIAN = {
+  female: [['lehenga', 'Lehenga choli', 'blouse, flared skirt, dupatta', '#8E1036', '#D9A520', 'paisley_butta', 'Blouse & dupatta'],
+    ['saree', 'Saree', 'blouse, skirt, pallu', '#0F6E5C', '#C8961E', 'block_floral', 'Accent'],
+    ['kurta', 'Kurta & churidar', 'long kurta, slim trousers', '#C2185B', '#F3E5C8', 'block_floral', 'Churidar']],
+  male: [['kurta_pyjama', 'Kurta pyjama', 'long kurta, pyjama', '#F2E8D5', '#F7F3EA', 'brocade', 'Pyjama'],
+    ['sherwani', 'Sherwani', 'long coat, churidar', '#E7D3A8', '#F4EEE0', 'brocade', 'Churidar']],
+};
+const PRINTS = ['paisley_butta', 'bandhani', 'leheriya', 'brocade', 'block_floral'];
+const buildIndian = () => {
+  const box = $('indianStyles');
+  box.innerHTML = '';
+  for (const [id, name, desc, main, accent, print, accentLabel] of INDIAN[M.info.gender] || []) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'style' + (M.indian?.style === id ? ' on' : '');
+    b.innerHTML = `<b>${name}</b><span>${desc}</span>`;
+    b.addEventListener('click', () => {
+      M.indian = M.indian?.style === id ? null : { style: id, main, accent, pattern: print, accentLabel };
+      if (M.indian) M.outfit = null;
+      updateApplyBar();
+      buildIndian();
+      buildCostume();
+    });
+    box.append(b);
+  }
+  $('indianOptions').hidden = !M.indian;
+  if (!M.indian) return;
+  $('indMain').value = M.indian.main.toLowerCase();
+  $('indAccent').value = M.indian.accent.toLowerCase();
+  $('indAccentLabel').textContent = M.indian.accentLabel || 'Accent colour';
+  const grid = $('indPrints');
+  grid.innerHTML = '';
+  for (const pr of [...PRINTS, 'none']) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'hair' + (M.indian.pattern === pr ? ' on' : '');
+    b.innerHTML = (pr === 'none' ? '<img alt="">' : `<img src="/hg/patterns/Indian/${pr}.jpg" alt="">`) +
+      `<span>${pr === 'none' ? 'Plain' : pr.replace(/_/g, ' ')}</span>`;
+    b.addEventListener('click', () => {
+      M.indian.pattern = pr;
+      buildIndian();
+      updateApplyBar();
+    });
+    grid.append(b);
+  }
+};
+$('indMain').addEventListener('input', (e) => { if (M.indian) { M.indian.main = e.target.value; updateApplyBar(); } });
+$('indAccent').addEventListener('input', (e) => { if (M.indian) { M.indian.accent = e.target.value; updateApplyBar(); } });
+
 const buildCostume = async () => {
   const g = M.info.gender;
+  buildIndian();
   const opts = (outfitCache[g] ??= await api(`/api/outfits?gender=${g}`));
   const grid = (box, list, kind) => {
     box.innerHTML = '';
@@ -627,6 +771,7 @@ const buildCostume = async () => {
       b.innerHTML = (o.preview ? `<img src="${o.preview}" alt="" loading="lazy">` : '<img alt="">') + `<span>${o.name}</span>`;
       b.addEventListener('click', () => {
         M[kind] = o.id === M.info.current?.[kind] ? null : o.id;
+        if (kind === 'outfit' && M.outfit) M.indian = null;
         updateApplyBar();
         buildCostume();
       });
@@ -665,11 +810,18 @@ const buildCostume = async () => {
 
 const changes = () => {
   const ch = {};
+  if (!M.info) return ch; // no model loaded yet
   if (Object.keys(M.pending).length) ch.keys = { ...M.pending };
   if (M.age !== M.info.age) ch.age = M.age;
   if (Math.abs(M.height - M.info.height_cm) >= 1) ch.height_cm = M.height;
   if (M.outfit) ch.outfit = M.outfit;
   if (M.footwear) ch.footwear = M.footwear;
+  if (M.hair) ch.hair = M.hair;
+  if (M.info.hair && (M.hairLen ?? 0) !== (M.info.hair.length_cm ?? 0)) ch.hair_length_cm = M.hairLen;
+  if (M.info.hair && Math.abs((M.hairWave ?? 0) - (M.info.hair.wave ?? 0)) > 0.01) ch.hair_wave = M.hairWave;
+  if (M.indian) ch.indian = { style: M.indian.style, main: M.indian.main, accent: M.indian.accent, pattern: M.indian.pattern };
+  if (M.info.hair && M.hairLight !== null && Math.abs(M.hairLight - M.info.hair.lightness) > 0.005) ch.hair_lightness = M.hairLight;
+  if (M.info.hair && M.hairRed !== null && Math.abs(M.hairRed - M.info.hair.redness) > 0.005) ch.hair_redness = M.hairRed;
   const cols = Object.fromEntries(Object.entries(M.colors).filter(([, v]) => Object.keys(v).length));
   if (Object.keys(cols).length) ch.colors = cols;
   return ch;
@@ -677,11 +829,15 @@ const changes = () => {
 
 const updateApplyBar = () => {
   const ch = changes();
-  const n = (ch.keys ? Object.keys(ch.keys).length : 0) + ['age', 'height_cm', 'outfit', 'footwear'].filter((k) => k in ch).length
+  const n = (ch.keys ? Object.keys(ch.keys).length : 0)
+    + ['age', 'height_cm', 'outfit', 'footwear', 'hair', 'hair_lightness', 'hair_redness', 'hair_length_cm', 'hair_wave',
+      'indian'].filter((k) => k in ch).length
     + (ch.colors ? Object.values(ch.colors).reduce((a, v) => a + Object.keys(v).length, 0) : 0);
   $('applyBar').hidden = !n || view !== 'model';
   $('applyCount').textContent = `${n} change${n === 1 ? '' : 's'}`;
-  const live = ch.keys && !ch.age && !ch.height_cm && !ch.outfit && !ch.footwear && !ch.colors;
+  const live = ch.keys && !ch.age && !ch.height_cm && !ch.outfit && !ch.footwear && !ch.colors && !ch.hair && !ch.indian
+    && !('hair_length_cm' in ch) && !('hair_wave' in ch)
+    && !('hair_lightness' in ch) && !('hair_redness' in ch);
   $('applyHint').textContent = live ? 'Shown live. Apply to save them (and refit the clothes): about 3 minutes.'
     : 'Age, height and costume show after Apply: about 3 minutes.';
 };
@@ -692,6 +848,12 @@ $('resetBtn').addEventListener('click', () => {
   M.height = M.info.height_cm;
   M.outfit = M.footwear = null;
   M.colors = {};
+  M.hair = null;
+  M.indian = null;
+  M.hairLen = M.info.hair?.length_cm ?? 0;
+  M.hairWave = M.info.hair?.wave ?? 0;
+  M.hairLight = M.info.hair?.lightness ?? null;
+  M.hairRed = M.info.hair?.redness ?? null;
   buildPanels();
   applyMorphs();
   updateApplyBar();
@@ -712,7 +874,7 @@ $('applyBtn').addEventListener('click', async () => {
 
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === t));
-  for (const k of ['face', 'body', 'age', 'costume']) $(`tab-${k}`).hidden = k !== t.dataset.tab;
+  for (const k of ['face', 'body', 'age', 'hair', 'costume']) $(`tab-${k}`).hidden = k !== t.dataset.tab;
   frame(t.dataset.tab === 'face' ? 'face' : 'body');
 }));
 

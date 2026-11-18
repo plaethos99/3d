@@ -145,7 +145,7 @@ const FACE_STEPS = [
   ['round3', 'Matching eyes, skin and hair (3/3)'], ['final', 'Building the character'],
 ];
 const HAIR_STEPS = [['final', 'Building the character with the new hairstyle']];
-const MODEL_STEPS = [['hair', 'Turning the hair into hair cards'], ['bake', 'Baking skin and clothes textures'],
+const MODEL_STEPS = [['bake', 'Baking skin and clothes textures'], ['hair', 'Turning the hair into hair cards'],
   ['morphs', 'Adding the face and body sliders'], ['export', 'Saving the 3D model']];
 const APPLY_STEPS = [['edit', 'Applying the changes (the clothes refit)'], ...MODEL_STEPS];
 /** Which step a line of output starts. */
@@ -156,9 +156,9 @@ const stepOf = (line) => {
   if (m) return m[1];
   m = line.match(/^eyes\+skin round (\d)/);
   if (m) return `round${m[1]}`;
-  if (/^SLIDERS /.test(line)) return 'hair';
-  if (/^hair done/.test(line)) return 'bake';
-  if (/^bake done/.test(line)) return 'morphs';
+  if (/^SLIDERS /.test(line)) return 'bake';
+  if (/^bake done/.test(line)) return 'hair';
+  if (/^hair done/.test(line)) return 'morphs';
   if (/^morphs done/.test(line)) return 'export';
   if (/^EDIT_START/.test(line)) return 'edit';
   return null;
@@ -348,6 +348,11 @@ const server = http.createServer(async (req, res) => {
       if (!file.startsWith(HAIR_DIR) || !file.endsWith('.jpg')) return sendJson(res, 403, { error: 'no' });
       return sendFile(res, file);
     }
+    if (req.method === 'GET' && parts[0] === 'hg' && parts.length === 4 && parts[1] === 'patterns') {
+      const file = path.resolve(HG_CONTENT, ...parts.slice(1).map(decodeURIComponent));
+      if (!file.startsWith(HG_CONTENT) || !file.endsWith('.jpg')) return sendJson(res, 403, { error: 'no' });
+      return sendFile(res, file);
+    }
     if (req.method === 'GET' && parts[0] === 'hg' && parts.length === 5 && ['outfits', 'footwear'].includes(parts[1])) {
       const file = path.resolve(HG_CONTENT, ...parts.slice(1).map(decodeURIComponent));
       if (!file.startsWith(HG_CONTENT) || !file.endsWith('.jpg')) return sendJson(res, 403, { error: 'no' });
@@ -465,6 +470,20 @@ const server = http.createServer(async (req, res) => {
         if (b.outfit && opts.outfits.some((o) => o.id === b.outfit)) changes.outfit = b.outfit;
         if (b.footwear && opts.footwear.some((o) => o.id === b.footwear)) changes.footwear = b.footwear;
         if (b.colors && typeof b.colors === 'object') changes.colors = b.colors;
+        if (b.hair && hairOptions(p.gender || 'female').some((h) => h.id === b.hair)) {
+          changes.hair = `hair\\head\\${p.gender || 'female'}\\${b.hair}`;
+        }
+        for (const k of ['hair_lightness', 'hair_redness', 'hair_length_cm', 'hair_wave']) {
+          if (Number.isFinite(b[k])) changes[k] = b[k];
+        }
+        const STYLES = { female: ['lehenga', 'saree', 'kurta'], male: ['kurta_pyjama', 'sherwani'] };
+        const PRINTS = ['paisley_butta', 'bandhani', 'leheriya', 'brocade', 'block_floral', 'none'];
+        const hex = (x) => (typeof x === 'string' && /^#[0-9a-fA-F]{6}$/.test(x) ? x : undefined);
+        if (b.indian && (STYLES[p.gender || 'female'] || []).includes(b.indian.style)) {
+          changes.indian = { style: b.indian.style, main: hex(b.indian.main), accent: hex(b.indian.accent),
+            pattern: PRINTS.includes(b.indian.pattern) ? b.indian.pattern : undefined };
+          delete changes.outfit; // the costume brings its own outfit
+        }
         writeFileSync(path.join(dir, 'model', 'changes.json'), JSON.stringify(changes, null, 1));
         return sendJson(res, 200, startJob(id, 'apply', APPLY_STEPS, [
           [PYTHON, '-c', 'print("EDIT_START")'],

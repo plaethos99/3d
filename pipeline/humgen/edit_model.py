@@ -8,6 +8,7 @@ changes.json (any of):
   outfit:    "outfits\\female\\Casual\\Smart_Casual.blend"   an HG outfit (as listed by the studio)
   footwear:  "footwear\\female\\Sneakers\\HG_Leather_Sneakers_Female.blend"
   colors:    {"<garment object>": {"<colour input>": "#RRGGBB"}}   garment colours (HG's clothing control node)
+  hair:      "hair\\head\\female\\Long\\Ponytail.json"   an HG hairstyle;  hair_lightness / hair_redness: 0..1
 Keys are set first and the rig, eyes, teeth and clothes refit once (HG's update_human_from_key_change); a new
 outfit is put on after, so it's fitted to the new body. Prints EDIT_MODEL_OK.
 """
@@ -52,6 +53,27 @@ def lin(hexstr):
     c = [int(hx[i:i + 2], 16) / 255 for i in (0, 2, 4)]
     return [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c] + [1.0]
 
+
+if changes.get("indian"):  # an Indian costume built on the body (indian.py)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import indian
+
+    ind = changes["indian"]
+    made = indian.make(human, ind["style"], ind.get("main"), ind.get("accent"), ind.get("pattern"))
+    done.append(f"indian {ind['style']} ({', '.join(made)})")
+if changes.get("hair"):
+    human.hair.regular_hair.set(changes["hair"])
+    done.append(f"hair {os.path.basename(changes['hair'])}")
+if "hair_length_cm" in changes:  # the viewer's hair length (0 = the style's own); long_hair.py builds it
+    rig["studio_hair_length"] = max(0.0, float(changes["hair_length_cm"]))
+    done.append(f"hair length {changes['hair_length_cm']} cm")
+if "hair_wave" in changes:
+    rig["studio_hair_wave"] = min(max(float(changes["hair_wave"]), 0.0), 1.0)
+    done.append(f"hair waves {changes['hair_wave']}")
+for name in ("lightness", "redness"):
+    if f"hair_{name}" in changes:
+        getattr(human.hair.regular_hair, name).value = float(changes[f"hair_{name}"])
+        done.append(f"hair {name} {changes[f'hair_{name}']}")
 
 for obj_name, inputs in (changes.get("colors") or {}).items():
     obj = bpy.data.objects.get(obj_name)
