@@ -11,6 +11,9 @@ Usage: blender -b -P pipeline/humgen/make_human.py -- <out_dir> [--gender female
   --sclera "#C9BBB0"  eye-white colour;  --lash-dark 0.02  lash lightness;  --lash-length 0.75  lash length factor;
   --lash-thin 0.35  lash strand thickness factor (this, not length, makes lashes read fine)
   --hair-lightness x --hair-redness x  HG's hair colour values
+  --face-hair "Large_Mustache_[Short]"  a moustache/beard (men; HG's face hair, coloured like the hair)
+  --salt-pepper 0.4  grey strands in the hair (0..1)
+  --braid left|right [--braid-length 0.45]  a plait over that shoulder (braid.py; use with Long\Ponytail Short)
   --fixed-camera  same framing for everyone (0.95 m target, 3.6 m away): for lineups
   --face-scale x  multiply the preset's face sliders (0.5 softens adult features for a child)
   --gown "#RRGGBB" [--gown-flare 1.0]  make the outfit's dress a floor-length flared gown in that colour
@@ -179,6 +182,21 @@ for name in ("lightness", "redness"):  # after the hairstyle: HG's hair shader v
     if f"--hair-{name}" in opts:
         getattr(human.hair.regular_hair, name).value = float(opts[f"--hair-{name}"])
         report[f"hair_{name}"] = float(opts[f"--hair-{name}"])
+if "--salt-pepper" in opts:  # grey strands mixed in (HG's own control)
+    human.hair.regular_hair.salt_and_pepper.value = float(opts["--salt-pepper"])
+    report["salt_pepper"] = float(opts["--salt-pepper"])
+if "--face-hair" in opts and gender == "male":  # a moustache or beard (HG's face hair), coloured like the hair
+    fh = human.hair.face_hair
+    choice = pick(fh.get_options(), opts["--face-hair"])
+    if choice:
+        try:
+            fh.set(choice)
+            for name in ("lightness", "redness", "salt_and_pepper"):
+                if hasattr(fh, name) and hasattr(human.hair.regular_hair, name):
+                    getattr(fh, name).value = getattr(human.hair.regular_hair, name).value
+            report["face_hair"] = choice
+        except Exception as e:  # noqa: BLE001
+            report["errors"].append(f"face hair {choice}: {e!r}")
 if "--sclera" in opts:  # HG's whites are near pure white: real eye whites are dimmer and warm
     human.eyes.sclera_color.value = (*_lin(opts["--sclera"]), 1)
     report["sclera"] = opts["--sclera"]
@@ -204,7 +222,19 @@ if "--height-cm" in opts:
 if "--age" in opts:
     human.age.set(int(opts["--age"]))
     report["age"] = int(opts["--age"])
+if "--braid" in opts:  # a plait over one shoulder (braid.py), after height/age so it sits on the final body
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import numpy as np
+    from braid import make_braid
 
+    hs = human.hair.regular_hair
+    L_, R_ = float(hs.lightness.value), float(hs.redness.value)  # HG's hair colour, roughly (export_model's)
+    dark, blond, red = np.array([0.012, 0.009, 0.007]), np.array([0.62, 0.45, 0.24]), np.array([0.30, 0.09, 0.03])
+    c = dark + (blond - dark) * min(max(L_, 0), 1) ** 1.4
+    c = c * (1 - 0.45 * R_) + red * (0.45 * R_) * (0.25 + L_)
+    make_braid(human, side=opts["--braid"], length=float(opts.get("--braid-length", "0.45")), rgb=tuple(c),
+               tex_dir=out)
+    report["braid"] = {"side": opts["--braid"], "length_m": float(opts.get("--braid-length", "0.45"))}
 
 
 def fix_eye_cornea():

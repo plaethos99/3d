@@ -94,6 +94,77 @@ def hg_landmark_vertices(human, P, polys, cache, work_dir):
     return np.array(found)
 
 
+def surface_landmarks(P, fs, work_dir, tag="mesh", colour=(0.8, 0.62, 0.52)):
+    """MediaPipe's 478 landmarks on any head mesh facing -y (z up): a straight-on orthographic render, the
+    landmarks found on it, each traced back onto the mesh. Returns (vertex index per landmark, -1 if missed;
+    the surface point hit, (478, 3)). The camera frames the head's top 0.35 of its height plus the face."""
+    sc = bpy.context.scene
+    me = bpy.data.meshes.new("lm_" + tag)
+    me.from_pydata([tuple(p) for p in P], [], fs)
+    me.update()
+    ob = bpy.data.objects.new("lm_" + tag, me)
+    sc.collection.objects.link(ob)
+    mat = bpy.data.materials.new("lm_skin")
+    mat.diffuse_color = (*colour, 1)
+    if mat.node_tree and mat.node_tree.nodes.get("Principled BSDF"):
+        mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (*colour, 1)
+    ob.data.materials.append(mat)
+    front = P[P[:, 1] < np.percentile(P[:, 1], 30)]  # the front of the head: the face
+    c = np.array([np.median(front[:, 0]), P[:, 1].min(), np.median(front[:, 2])])
+    width = float(np.percentile(front[:, 0], 98) - np.percentile(front[:, 0], 2))
+    res = 1024
+    pts2 = []
+    for zoom in (1.6, 2.3, 3.2):  # wider framing until MediaPipe sees a whole face
+        scale = zoom * width
+        cam = bpy.data.objects.new("lm_cam", bpy.data.cameras.new("lm_cam"))
+        sc.collection.objects.link(cam)
+        cam.data.type = "ORTHO"
+        cam.data.ortho_scale = scale
+        cam.data.clip_end = 100
+        cam.location = Vector((c[0], c[1] - scale * 3, c[2]))
+        cam.rotation_euler = (Vector(c) - cam.location).to_track_quat("-Z", "Y").to_euler()
+        light = bpy.data.objects.new("lm_light", bpy.data.lights.new("lm_light", "SUN"))
+        sc.collection.objects.link(light)
+        light.rotation_euler = (1.3, 0, 0.2)
+        light.data.energy = 3
+        hidden = [o for o in sc.objects if o not in (ob, cam, light) and not o.hide_render]
+        for o in hidden:
+            o.hide_render = True
+        old = (sc.camera, sc.render.resolution_x, sc.render.resolution_y, sc.render.filepath)
+        sc.camera = cam
+        sc.render.resolution_x = sc.render.resolution_y = res
+        img = os.path.join(work_dir, f"{tag}_front_landmarks.png")
+        sc.render.filepath = img
+        bpy.ops.render.render(write_still=True)
+        sc.camera, sc.render.resolution_x, sc.render.resolution_y, sc.render.filepath = old
+        for o in hidden:
+            o.hide_render = False
+        for o in (cam, light):
+            bpy.data.objects.remove(o)
+        out = subprocess.run([PY, "-I", "-c", DETECT, MODEL, img], capture_output=True, text=True)
+        line = next((ln for ln in out.stdout.splitlines() if ln.startswith("LANDMARKS")), None)
+        pts2 = json.loads(line.split(" ", 1)[1]) if line else []
+        if pts2:
+            break
+    bpy.data.objects.remove(ob)
+    if not pts2:
+        raise RuntimeError("MediaPipe found no face on the render " + img + " " + out.stderr[-300:])
+    tree = BVHTree.FromPolygons([tuple(p) for p in P], fs)
+    ids, hits = [], []
+    for x, y in pts2:
+        wx = c[0] + (x / res - 0.5) * scale
+        wz = c[2] - (y / res - 0.5) * scale
+        hit = tree.ray_cast(Vector((wx, c[1] - scale * 3, wz)), Vector((0, 1, 0)))
+        if hit[0] is None:
+            ids.append(-1)
+            hits.append((np.nan, np.nan, np.nan))
+            continue
+        poly = fs[hit[2]]
+        ids.append(int(min(poly, key=lambda vi: np.linalg.norm(P[vi] - np.array(hit[0])))))
+        hits.append(tuple(hit[0]))
+    return np.array(ids), np.array(hits)
+
+
 def similarity(src, dst, w=None):
     """Umeyama: s, R, t with dst ~ s R src + t (weighted)."""
     w = np.ones(len(src)) if w is None else np.asarray(w, float)

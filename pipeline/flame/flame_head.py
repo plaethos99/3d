@@ -26,6 +26,7 @@ src, out = (os.path.abspath(p) for p in sys.argv[sys.argv.index("--") + 1:][:2])
 os.makedirs(out, exist_ok=True)
 data = np.load(src)
 F, names, V = data["faces"], [str(n) for n in data["names"]], data["verts"]
+UVV = data["uv"] if "uv" in data.files else None  # per FLAME vertex (flame_photofit.py's layout)
 
 
 def to_blender(v):
@@ -63,10 +64,15 @@ def piece(P, r):
     return P[keep], fs, keep
 
 
-def make(name, P, fs):
+def make(name, P, fs, uv=None):
     me = bpy.data.meshes.new(name)
     me.from_pydata([tuple(p) for p in P], [], fs)
     me.update()
+    if uv is not None:
+        layer = me.uv_layers.new(name="UVMap")
+        for poly in me.polygons:
+            for li, vi in zip(poly.loop_indices, poly.vertices):
+                layer.data[li].uv = tuple(uv[vi])
     for poly in me.polygons:
         poly.use_smooth = True
     ob = bpy.data.objects.new(name, me)
@@ -130,7 +136,7 @@ cache = os.path.join(out, "flame_landmarks.json")
 lm = None
 for name, v in zip(names, V):
     P = to_blender(v)
-    HP, hf, _ = piece(P, head_r)
+    HP, hf, keep_idx = piece(P, head_r)
     if lm is None:
         lm = json.load(open(cache))["landmarks"] if os.path.exists(cache) else landmark_vertices(HP, hf, out)
         json.dump({"landmarks": lm}, open(cache, "w"))
@@ -139,7 +145,7 @@ for name, v in zip(names, V):
     os.makedirs(d, exist_ok=True)
     for ob in list(bpy.data.objects):
         bpy.data.objects.remove(ob, do_unlink=True)
-    make("head", HP, hf)
+    make("head", HP, hf, UVV[keep_idx] if UVV is not None else None)
     eyes = [piece(P, r) for r in eye_rs]
     eyes.sort(key=lambda e: -e[0][:, 0].mean())  # character's left (+x) first
     for label, (EP, ef, _) in zip(("eye.L", "eye.R"), eyes):

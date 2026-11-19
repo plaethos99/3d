@@ -3,7 +3,8 @@
 Usage: python pipeline/humgen/photo_character.py <face_run> <out_dir> --name flow_woman [--gender female]
        [--body tests/body/<name>] [--photo front.png] [--hair-style "Long\\Bob Long"] [--outfit "Casual\\Smart_Casual"]
        [--footwear Leather_Sneakers] [--preset Emma] [--eye-rounds 3] [--height-cm 165] [--from step]
-       [--brows Eyebrows_Female|none]  (HG strand brows on the captured face; they sit where the photo's brows are)
+       [--brows Eyebrows_Female|none] [--braid left|right [--braid-length 0.45]] [--skin-from <other name>]
+       [--face-hair "Large_Mustache_[Short]"] [--salt-pepper 0.4]  (HG strand brows on the captured face; they sit where the photo's brows are)
 face_run: tests/face/<name> (head.blend, textures/, masks/hair.json, turn.mp4).
 Steps (each a script; --from picks where to start):
   capture  face_capture.py   the face shape as the HG slider face_<name>
@@ -115,6 +116,12 @@ if start <= 0:
     print(f"capture ({time.time() - t0:.0f}s)")
     show(blender("face_capture.py", head, work, "--name", name, "--gender", gender, ok="FACE_CAPTURE_OK"),
          "ALIGN", "FACE moved")
+skins_dir = os.path.join(CONTENT, "textures", gender, "Default 4K")
+if opt("--skin-from") and start <= 2:  # a head with no photo texture of its own (a FLAME fit): another run's skin
+    import shutil
+    shutil.copy(os.path.join(skins_dir, f"face_{opt('--skin-from')}.png"), os.path.join(skins_dir, f"face_{name}.png"))
+    print(f"skin copied from face_{opt('--skin-from')}")
+    start = 3
 if start <= 1:
     print(f"bake ({time.time() - t0:.0f}s)")
     show(blender("face_bake.py", head, work, "--name", name, "--gender", gender, ok="FACE_BAKE_OK"), "BAKED")
@@ -151,12 +158,17 @@ def skin_of(*images, what="SKIN"):
 def build(dst, iris_hex, sclera_hex, skin_tone=1.0, skin_sat=1.0, exposure=0.0):
     args = [dst, "--gender", gender, "--preset", preset, "--reset-body", "--face-scale", "0",
             "--skin-tone", f"{skin_tone:.3f}", "--skin-saturation", f"{skin_sat:.3f}", "--skin-redness", "0",
-            "--key", f"face_{name}=1", "--skin", f"face_{name}", "--brows", opt("--brows", "Eyebrows_Female"),
+            "--key", f"face_{name}=1", "--skin", f"face_{name}", "--brows", opt("--brows", "Eyebrows_Female" if gender == "female" else "Eyebrows_Male"),
             "--iris", iris_hex, "--sclera", sclera_hex, "--lash-dark", "0.04", "--lash-length", opt("--lash-length", "0.7"),
             "--lash-thin", opt("--lash-thin", "0.35"),
             "--hair-lightness", str(values["hair_lightness"]), "--hair-redness", str(values["hair_redness"])]
     if "height_cm" in values:
         args += ["--height-cm", str(values["height_cm"])]
+    for flag in ("--face-hair", "--salt-pepper"):
+        if opt(flag):
+            args += [flag, opt(flag)]
+    if opt("--braid"):
+        args += ["--braid", opt("--braid"), "--braid-length", opt("--braid-length", "0.45")]
     for flag, default in (("--hair-style", "Long\\Bob Long"), ("--outfit", "Casual\\Smart_Casual"),
                           ("--footwear", "Leather_Sneakers")):
         args += ["--hair" if flag == "--hair-style" else flag, opt(flag, default)]

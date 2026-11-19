@@ -1,0 +1,145 @@
+// Genesis 9 with one of our faces, rigged to it, saved as a scene. Run by daz_build.py (Daz Studio 6, own instance).
+// Script args: <morph id> <scene .duf> <report .txt> [<skin.json from g9_skin.py>] [<render base .png>]
+//              [<character .json: {"body_morphs": {"BaseMasculine_body_bs_Body": 1}, "figure_presets": ["/People/...
+//               eye or skin preset .duf"], "wear": [{"wear": "/People/...duf", "presets": [...]}, ...]} (or just the
+//               wear list)>]. The skin preset matching skin.json's base skin is applied before our colour maps.
+var args = App.scriptArgs;
+var morphId = args[0], scenePath = args[1], reportPath = args[2];
+var skinPath = args.length > 3 ? args[3] : "", renderPath = args.length > 4 ? args[4] : "";
+var dressPath = args.length > 5 ? args[5] : "";
+var out = new DzFile(reportPath);
+out.open(DzFile.WriteOnly);
+function log(s) { out.writeLine(String(s)); }
+function bonePos(fig, name) {
+    var b = fig.findBone(name);
+    if (!b) return "none";
+    var p = b.getOrigin();
+    return [p.x.toFixed(2), p.y.toFixed(2), p.z.toFixed(2)].join(",");
+}
+try {
+    Scene.clear();
+    var cm = App.getContentMgr();
+    cm.openFile(cm.findFile("/People/Genesis 9/Genesis 9.duf"), true);
+    var fig = Scene.getPrimarySelection();
+    log("figure " + fig.getLabel());
+    log("before l_eye " + bonePos(fig, "l_eye") + " r_eye " + bonePos(fig, "r_eye") + " head " + bonePos(fig, "head"));
+    var obj = fig.getObject(), found = false;
+    for (var i = 0; i < obj.getNumModifiers(); i++) {
+        var m = obj.getModifier(i);
+        if (m.name == morphId) { m.getValueChannel().setValue(1.0); found = true; }
+    }
+    log("morph " + morphId + " set: " + found);
+    Scene.update ? Scene.update() : 0;
+    var charCfg = {};
+    if (dressPath) { var cf = new DzFile(dressPath); cf.open(DzFile.ReadOnly); charCfg = JSON.parse(cf.read()); cf.close(); }
+    if (charCfg.length !== undefined) charCfg = {"wear": charCfg};
+    // body shape: Daz's own body morphs (not their head morphs: our face is the head)
+    var bm = charCfg.body_morphs || {};
+    for (var mi = 0; mi < obj.getNumModifiers(); mi++) {
+        var mm = obj.getModifier(mi);
+        if (bm[mm.name] !== undefined) { mm.getValueChannel().setValue(bm[mm.name]); log("body morph " + mm.name + " = " + bm[mm.name]); }
+    }
+    var skin = null;
+    if (skinPath) { var sf = new DzFile(skinPath); sf.open(DzFile.ReadOnly); skin = JSON.parse(sf.read()); sf.close(); }
+    // presets on the figure, before our colour maps: the Genesis 9 skin our texture was made from (its normal,
+    // roughness and subsurface maps then match), then eye colour and the like
+    var figPresets = [];
+    if (skin && skin.base_skin) {
+        var parts = skin.base_skin.split("_");  // "Feminine_02" -> "G9 Feminine Skin 02 MAT.duf"
+        figPresets.push("/People/Genesis 9/Materials/Daz Originals/Base Materials/G9 " + parts[0] + " Skin " + parts[1] + " MAT.duf");
+    }
+    figPresets = figPresets.concat(charCfg.figure_presets || []);
+    for (var fp = 0; fp < figPresets.length; fp++) {
+        Scene.selectAllNodes(false); fig.select(true);
+        var fpath = cm.findFile(figPresets[fp]);
+        if (fpath) { cm.openFile(fpath, true); log("figure preset " + figPresets[fp]); } else log("figure preset NOT FOUND " + figPresets[fp]);
+    }
+    // skin: our textures on the head, body, legs and arms (g9_skin.py), as each material's base colour map
+    if (skin) {
+        var shape = obj.getCurrentShape();
+        for (var k = 0; k < shape.getNumMaterials(); k++) {
+            var mat = shape.getMaterial(k), tile = mat.getName();
+            if (!skin.maps[tile]) continue;
+            var props = [], setOk = false;
+            for (var q = 0; q < mat.getNumProperties(); q++) {
+                var pr = mat.getProperty(q);
+                if (k == 0 || tile == "Head") props.push(pr.getLabel());
+                if (/^(Base Color|Diffuse Color|Translucency Color)$/.test(pr.getLabel()) && pr.setMap) {
+                    if (pr.getLabel() != "Translucency Color" || true) { pr.setMap(skin.maps[tile]); setOk = true; }
+                }
+            }
+            if (tile == "Head") log("head material properties: " + props.slice(0, 60).join(" | "));
+            log("skin " + tile + " -> " + skin.maps[tile] + " set: " + setOk);
+        }
+    }
+    // clothes and hair: each item put on the figure (Daz fits it to the selected figure), then its presets
+    if (charCfg.wear) {
+        var dress = charCfg.wear;
+        for (var w = 0; w < dress.length; w++) {
+            Scene.selectAllNodes(false); fig.select(true);
+            var wf = cm.findFile(dress[w].wear);
+            var nBefore = Scene.getNumNodes();
+            cm.openFile(wf, true);
+            // the item just added (a figure fitted to ours): select it, so its presets apply to it, not the body
+            var item = null;
+            for (var ni = nBefore; ni < Scene.getNumNodes(); ni++) {
+                var nd = Scene.getNode(ni);
+                if (nd && nd.inherits("DzFigure") && nd != fig) { item = nd; break; }
+            }
+            log("wear " + dress[w].wear + " -> " + (item ? item.getLabel() : "?"));
+            var pre = dress[w].presets || [];
+            if (item) { Scene.selectAllNodes(false); item.select(true); }
+            for (var pp = 0; pp < pre.length; pp++) { cm.openFile(cm.findFile(pre[pp]), true); log("   preset " + pre[pp]); }
+        }
+        Scene.selectAllNodes(false); fig.select(true);
+    }
+    // the rig follows by itself: the morph file carries formulas for every head joint (g9_face.py)
+    log("after l_eye " + bonePos(fig, "l_eye") + " r_eye " + bonePos(fig, "r_eye") + " head " + bonePos(fig, "head"));
+    var saved = false;
+    try {
+        var io = App.getAssetIOMgr();
+        var idx = io.findFilterIndex("DzSceneAssetFilter");
+        var filter = io.getFilter(idx);
+        var res = io.doSaveWithOptions(filter, filter.getDefaultOptions ? filter.getDefaultOptions() : new DzFileIOSettings(), false, scenePath, "", "");
+        saved = true; log("save: doSaveWithOptions " + res);
+    } catch (e) { log("doSaveWithOptions failed " + e); }
+    if (!saved) { try { Scene.saveScene(scenePath); log("save: Scene.saveScene"); } catch (e) { log("saveScene failed " + e); } }
+    log("scene exists " + new DzFileInfo(scenePath).exists());
+    if (renderPath) {  // pictures: face straight on, face three-quarter, full body (Iray: what this machine has)
+        var rm = App.getRenderMgr();
+        rm.setActiveRenderer(rm.findRenderer("DzIrayRenderer"));
+        // Iray runs on the CPU here (the graphics driver is too old for its GPU mode): cap each picture's time
+        var capTime = 180, capSamples = 400, els = rm.getRenderElementObjects ? rm.getRenderElementObjects() : [];
+        for (var e2 = 0; e2 < els.length; e2++) {
+            var el = els[e2];
+            if (!el || !el.findProperty) continue;
+            var pt = el.findProperty("Max Time (secs)"), ps = el.findProperty("Max Samples");
+            if (pt) { pt.setValue(capTime); log("render cap: max time " + capTime + " s"); }
+            if (ps) { ps.setValue(capSamples); log("render cap: max samples " + capSamples); }
+        }
+        var cam = new DzBasicCamera(); cam.setName("FaceCam"); Scene.addNode(cam);
+        var vp = MainWindow.getViewportMgr().getActiveViewport().get3DViewport();
+        vp.setCamera(cam);
+        var eye = fig.findBone("l_eye").getOrigin(), eyeR = fig.findBone("r_eye").getOrigin();
+        var fc = new DzVec3((eye.x + eyeR.x) / 2, (eye.y + eyeR.y) / 2 - 3, (eye.z + eyeR.z) / 2);
+        var shots = [["_face", 0, 75, 85, fc], ["_face34", 35, 75, 85, fc], ["_body", 25, 380, 50, new DzVec3(0, 95, 0)]];
+        for (var sh = 0; sh < shots.length; sh++) {
+            var a_ = shots[sh][1] * Math.PI / 180, dist = shots[sh][2], tgt = shots[sh][4];
+            vp.setCamera(cam);  // Daz goes back to its own camera after a render: set ours before every shot
+            cam.setWSPos(new DzVec3(tgt.x + Math.sin(a_) * dist, tgt.y + 2, tgt.z + Math.cos(a_) * dist));
+            cam.aimAt(tgt);
+            cam.getFocalLengthControl ? cam.getFocalLengthControl().setValue(shots[sh][3]) : 0;
+            var ro = rm.getRenderOptions();
+            ro.renderImgToId = DzRenderOptions.DirectToFile;
+            ro.renderImgFilename = renderPath.replace(/\.png$/, shots[sh][0] + ".png");
+            ro.isAspectConstrained = false;
+            ro.imageSize = shots[sh][0] == "_body" ? new Size(700, 1000) : new Size(800, 1000);
+            var ok = rm.doRender(ro);
+            log("render " + shots[sh][0] + ": " + ok + " " + new DzFileInfo(ro.renderImgFilename).exists());
+        }
+    }
+} catch (e) { log("ERROR " + e); }
+log("done");
+out.close();
+Scene.clear();
+App.delayedExit();
