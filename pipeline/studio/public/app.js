@@ -580,16 +580,44 @@ const sliderEl = (label, min, max, step, value, changed, onInput, fmtv = (x) => 
   return wrap;
 };
 
+/** "Random face": every FLAME shape slider drawn like a real population (sd 0.5 = 1 standard deviation of real
+ * faces, since 1.0 on a slider is 2), clamped to the slider's range. "Average face" sets them back to 0. */
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+const setFlame = (flame, pick) => {
+  for (const s of flame) {
+    const x = Math.max(s.min, Math.min(s.max, pick(s)));
+    if (Math.abs(x - s.value) < 1e-3) delete M.pending[s.key];
+    else M.pending[s.key] = Math.round(x * 100) / 100;
+  }
+  const open = [...document.querySelectorAll('#tab-face details.group')].filter((d) => d.open).map((d) => d.querySelector('summary').textContent);
+  buildPanels();
+  document.querySelectorAll('#tab-face details.group').forEach((d) => (d.open = open.includes(d.querySelector('summary').textContent)));
+  applyMorphs();
+  updateApplyBar();
+};
+const randomFaceRow = (flame) => {
+  const row = document.createElement('div');
+  row.className = 'randomFace';
+  row.innerHTML = '<button type="button" class="primary">Random face</button><button type="button">Average face</button>' +
+    '<small>New face shape from 3,800 real head scans (FLAME). Apply to keep it.</small>';
+  const [rnd, avg] = row.querySelectorAll('button');
+  rnd.onclick = () => setFlame(flame, () => 0.5 * gauss());
+  avg.onclick = () => setFlame(flame, () => 0);
+  return row;
+};
+
 const buildPanels = () => {
   for (const part of ['face', 'body']) {
     const box = $(`tab-${part}`);
     box.innerHTML = '';
     const groups = {};
     for (const s of M.info.sliders.filter((x) => x.part === part)) (groups[s.group] ??= []).push(s);
+    const flame = M.info.sliders.filter((x) => x.key.startsWith('flame_shape_'));
+    if (part === 'face' && flame.length) box.append(randomFaceRow(flame));
     for (const [g, list] of Object.entries(groups)) {
       const det = document.createElement('details');
       det.className = 'group';
-      det.open = part === 'face' ? ['Nose', 'Lips & mouth', 'Cheeks'].includes(g) : ['Build', 'Torso'].includes(g);
+      det.open = part === 'face' ? ['Face shape (FLAME)', 'Nose', 'Lips & mouth'].includes(g) : ['Build', 'Torso'].includes(g);
       det.innerHTML = `<summary>${g}</summary>`;
       for (const s of list) {
         const val = s.key in M.pending ? M.pending[s.key] : s.value;

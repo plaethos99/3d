@@ -3,6 +3,7 @@
 Usage: python pipeline/humgen/photo_character.py <face_run> <out_dir> --name flow_woman [--gender female]
        [--body tests/body/<name>] [--photo front.png] [--hair-style "Long\\Bob Long"] [--outfit "Casual\\Smart_Casual"]
        [--footwear Leather_Sneakers] [--preset Emma] [--eye-rounds 3] [--height-cm 165] [--from step]
+       [--brows Eyebrows_Female|none]  (HG strand brows on the captured face; they sit where the photo's brows are)
 face_run: tests/face/<name> (head.blend, textures/, masks/hair.json, turn.mp4).
 Steps (each a script; --from picks where to start):
   capture  face_capture.py   the face shape as the HG slider face_<name>
@@ -14,7 +15,7 @@ Steps (each a script; --from picks where to start):
   final    make_human.py with everything, face_shot.py, a side-by-side with the photo
 Values taken from the measurements, not chosen: skin (tone match), iris and eye-white colours (measured), height
 (the body run's stature, if --body), hair colour (calibrated like the eyes, beside the temples). Still
-chosen: hairstyle, outfit and shoes (flags), the body preset's build. Writes <out_dir>/values.json and
+chosen: hairstyle, outfit, shoes and brow style (flags), the body preset's build. Writes <out_dir>/values.json and
 compare.jpg. Prints PHOTO_CHARACTER_OK.
 """
 import json
@@ -150,7 +151,7 @@ def skin_of(*images, what="SKIN"):
 def build(dst, iris_hex, sclera_hex, skin_tone=1.0, skin_sat=1.0, exposure=0.0):
     args = [dst, "--gender", gender, "--preset", preset, "--reset-body", "--face-scale", "0",
             "--skin-tone", f"{skin_tone:.3f}", "--skin-saturation", f"{skin_sat:.3f}", "--skin-redness", "0",
-            "--key", f"face_{name}=1", "--skin", f"face_{name}", "--brows", "none",
+            "--key", f"face_{name}=1", "--skin", f"face_{name}", "--brows", opt("--brows", "Eyebrows_Female"),
             "--iris", iris_hex, "--sclera", sclera_hex, "--lash-dark", "0.04", "--lash-length", opt("--lash-length", "0.7"),
             "--lash-thin", opt("--lash-thin", "0.35"),
             "--hair-lightness", str(values["hair_lightness"]), "--hair-redness", str(values["hair_redness"])]

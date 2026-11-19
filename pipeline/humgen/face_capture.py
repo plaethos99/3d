@@ -15,6 +15,7 @@ How (as pipeline/mpfb/faces.py does for MPFB):
 Writes <out_dir>/clay_<view>_<source|hg>.png (front / three-quarter / side, clay, same camera) and
 <out_dir>/face.blend and align.npz (source -> HG). Prints FACE_CAPTURE_OK.
 """
+import json
 import os
 import sys
 
@@ -121,37 +122,125 @@ print("ALIGN residual mm", np.round(np.linalg.norm((R @ (A - ca).T).T + cb - B, 
       "HG", round(float(np.linalg.norm(B[0] - B[1]) * 1000), 1))
 
 # 3. moves
-bm = bmesh.new()
-bm.from_mesh(src_head.data)
-for v, p in zip(bm.verts, S_al):
-    v.co = Vector(p)
-bm.normal_update()
-tree = BVHTree.FromBMesh(bm)
-bm.free()
-moves = np.zeros_like(P)
-good = np.zeros(len(P), bool)
-region = np.where(head_w > 0)[0]
-for i in region:
-    loc, nrm, _, _ = tree.find_nearest(Vector(P[i]), reach)
-    if loc is not None and Vector(NP[i]).dot(nrm) > 0.3:
-        moves[i] = np.array(loc) - P[i]
-        good[i] = True
-for _ in range(40):  # unmatched points (inside the mouth, eye sockets, ...) take their neighbours' moves
-    new = moves.copy()
+method = opt("--method", "landmarks")
+if method == "landmarks" and os.path.exists(os.path.join(os.path.dirname(src_blend), "subject_fit.json")):
+    # Landmark-driven: each of the person's 468 measured face landmarks pulls HG's matching vertex to its place
+    # (eye spacing, nose length, mouth width, jaw line: proportions, not only depth), every other head point follows
+    # by smooth (biharmonic) interpolation; then a light surface pass (1 cm) for the shape between landmarks.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from hg_landmarks import hg_landmark_vertices, rbf_moves, similarity
+
+    polys = [tuple(p.vertices) for p in body.data.polygons]
+    cache = os.path.join(get_prefs().filepath, f"hg_landmarks_{gender}.json")
+    lm_v = hg_landmark_vertices(human, P, polys, cache, out)
+    fit = json.load(open(os.path.join(os.path.dirname(src_blend), "subject_fit.json")))
+    M_src = np.array(src_head.matrix_world)
+    ids = np.array(fit["ids"])
+    Ls = (M_src[:3, :3] @ np.array(fit["points"]).T).T + M_src[:3, 3]
+    rel_w = np.clip(np.array(fit.get("reliability", [1.0] * len(ids)), float), 0.05, 1.0)
+    ok = (ids < len(lm_v)) & (lm_v[np.minimum(ids, len(lm_v) - 1)] >= 0)
+    # the inner lip line: where the closed lips meet, a landmark's ray can find either lip: left out
+    INNER_LIPS = {78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191}
+    ok &= ~np.isin(ids, list(INNER_LIPS))
+    ids, Ls, rel_w = ids[ok], Ls[ok], rel_w[ok]
+    Lh = P[lm_v[ids]]
+    # robust: landmarks whose HG vertex was mis-found (a ray through an eye opening hits the back of the skull)
+    # move far more than the rest: drop them and line up again
+    keep = np.ones(len(ids), bool)
+    for _ in range(3):
+        s_, R_, t_ = similarity(Ls[keep], Lh[keep], rel_w[keep])
+        err = np.linalg.norm((s_ * (R_ @ Ls.T)).T + t_ - Lh, axis=1)
+        keep = err < max(0.012, 3 * np.median(err[keep]))
+    print("LANDMARKS dropped as mis-found:", int((~keep).sum()))
+    ids, Ls, Lh, rel_w = ids[keep], Ls[keep], Lh[keep], rel_w[keep]
+    s_, R_, t_ = similarity(Ls, Lh, rel_w)
+    Ls_al = (s_ * (R_ @ Ls.T)).T + t_
+    D = Ls_al - Lh
+    # local check: a landmark whose move disagrees with its neighbours' (a ray that found a nostril's inside or the
+    # wrong lip) pulls nearby points against each other and tears the surface: drop it
+    near = np.argsort(np.linalg.norm(Lh[:, None] - Lh[None], axis=2), axis=1)[:, 1:9]
+    dev = np.linalg.norm(D - np.median(D[near], axis=1), axis=1)
+    lim = max(0.002, float(np.median(dev) + 4 * np.median(np.abs(dev - np.median(dev)))))
+    good_l = dev < lim
+    print("LANDMARKS dropped as out of step with their neighbours:", int((~good_l).sum()), "(limit %.1f mm)" % (lim * 1000))
+    ids, Ls, Lh, rel_w, D = ids[good_l], Ls[good_l], Lh[good_l], rel_w[good_l], D[good_l]
+    print("LANDMARKS", len(ids), "matched; person -> HG scale %.3f; landmark moves median %.1f mm, largest %.1f mm" % (
+        s_, np.median(np.linalg.norm(D, axis=1)) * 1000, np.linalg.norm(D, axis=1).max() * 1000))
+    region = np.where(head_w > 0)[0]
+    moves = np.zeros_like(P)
+    moves[region] = rbf_moves(Lh, D, P[region], smooth=float(opt("--rbf-smooth", "1e-5")))
+    moves *= head_w[:, None]
+    # the source head in the same frame, for the light surface pass
+    S_al = (s_ * (R_ @ S.T)).T + t_
+    R, ca, cb = R_ * s_, np.zeros(3), t_  # for align.npz (x -> R x + cb)
+    np.savez(os.path.join(out, "align.npz"), R=R, ca=ca, cb=cb)
+    bm = bmesh.new()
+    bm.from_mesh(src_head.data)
+    for v, p in zip(bm.verts, S_al):
+        v.co = Vector(p)
+    bm.normal_update()
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+    Q = P + moves
+    surface = float(opt("--surface", "0.7"))
+    extra = np.zeros_like(P)
     for i in region:
-        if not good[i] and nb[i]:
-            new[i] = moves[nb[i]].mean(0)
-    moves = new
-for _ in range(2):
-    new = moves.copy()
+        loc, nrm, _, _ = tree.find_nearest(Vector(Q[i]), 0.01)
+        if loc is not None and Vector(NP[i]).dot(nrm) > 0.5:
+            extra[i] = (np.array(loc) - Q[i]) * surface
+    for _ in range(3):
+        new = extra.copy()
+        for i in region:
+            if nb[i]:
+                new[i] = 0.5 * extra[i] + 0.5 * extra[nb[i]].mean(0)
+        extra = new
+    moves += extra * head_w[:, None]
+    # smooth the move over the mesh (neighbour to neighbour): broad shape stays, notches where close points were
+    # pulled apart (mouth corners, the edge of the moved region by the jaw) go
+    for _ in range(int(opt("--smooth-moves", "8"))):
+        new = moves.copy()
+        for i in region:
+            if nb[i]:
+                new[i] = 0.5 * moves[i] + 0.5 * moves[nb[i]].mean(0)
+        moves = new
+    good = np.ones(len(P), bool)
+    print("FACE moved: median %.1f mm, largest %.1f mm (landmark-driven)" % (
+        np.median(np.linalg.norm(moves[region], axis=1)) * 1000, np.linalg.norm(moves, axis=1).max() * 1000))
+    method_done = True
+else:
+    method_done = False
+if not method_done:  # the older surface-only method (no landmarks for this head)
+    bm = bmesh.new()
+    bm.from_mesh(src_head.data)
+    for v, p in zip(bm.verts, S_al):
+        v.co = Vector(p)
+    bm.normal_update()
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+    moves = np.zeros_like(P)
+    good = np.zeros(len(P), bool)
+    region = np.where(head_w > 0)[0]
     for i in region:
-        if nb[i]:
-            new[i] = 0.5 * moves[i] + 0.5 * moves[nb[i]].mean(0)
-    moves = new
-moves *= head_w[:, None]
-print("FACE moved: median %.1f mm, largest %.1f mm, %d of %d head points matched" % (
-    np.median(np.linalg.norm(moves[region], axis=1)) * 1000, np.linalg.norm(moves, axis=1).max() * 1000,
-    good.sum(), len(region)))
+        loc, nrm, _, _ = tree.find_nearest(Vector(P[i]), reach)
+        if loc is not None and Vector(NP[i]).dot(nrm) > 0.3:
+            moves[i] = np.array(loc) - P[i]
+            good[i] = True
+    for _ in range(40):  # unmatched points (inside the mouth, eye sockets, ...) take their neighbours' moves
+        new = moves.copy()
+        for i in region:
+            if not good[i] and nb[i]:
+                new[i] = moves[nb[i]].mean(0)
+        moves = new
+    for _ in range(2):
+        new = moves.copy()
+        for i in region:
+            if nb[i]:
+                new[i] = 0.5 * moves[i] + 0.5 * moves[nb[i]].mean(0)
+        moves = new
+    moves *= head_w[:, None]
+    print("FACE moved: median %.1f mm, largest %.1f mm, %d of %d head points matched" % (
+        np.median(np.linalg.norm(moves[region], axis=1)) * 1000, np.linalg.norm(moves, axis=1).max() * 1000,
+        good.sum(), len(region)))
 
 # 4. the HG face slider
 local = (np.array(body.matrix_world.inverted().to_3x3()) @ moves.T).T

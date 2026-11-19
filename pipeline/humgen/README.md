@@ -78,6 +78,22 @@ saturation. The comparison shot (`face_shot.py`) uses the Standard view (AgX was
 that follows the photo's; eyes are compared relative to the skin so exposure doesn't matter. Still chosen by flags:
 hairstyle, outfit, shoes, body preset. Writes values.json and compare.jpg (about 4 minutes).
 
+## More face shapes from FLAME (pipeline/flame/)
+
+[FLAME 2023 Open](https://flame.is.tue.mpg.de/) (Max Planck Institute for Intelligent Systems, CC-BY-4.0) is a
+head model learned from 3,800 head scans; its identity directions are the main ways real heads differ. Download
+`FLAME2023Open.zip` from its site (sign-up needed) and put `flame2023_Open.pkl` in `tools/flame/` (never in the repo).
+
+```
+tools/pose-env/Scripts/python.exe pipeline/flame/flame_faces.py
+```
+
+Builds the mean FLAME head and one head 2 standard deviations along each of the first 20 directions
+(`flame_model.py`, `flame_head.py`), captures each onto HG's head by landmarks (`face_capture.py`, both genders),
+and saves slider k = capture(direction k) - capture(mean) as `livekeys/face_proportions/flame/<gender>_flame_shape_kk`
+(about 18 minutes). HG and the studio list them as the "Face shape (FLAME)" group, -1.5..1.5 (1.0 = 2 standard
+deviations). `flame_lineup.py` renders random mixes for a look check (`--spread 0.5` is a natural population).
+
 ## Known Blender 5.2 issues
 
 Fixed in `compat.py`: `eevee.use_gtao`, bpy collection subclassing (crashed Blender), bone groups, bone

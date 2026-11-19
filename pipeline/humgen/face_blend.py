@@ -76,6 +76,20 @@ def one_piece(h):
     return cv2.drawContours(np.zeros_like(h), cs, -1, 1, thickness=cv2.FILLED)
 
 
+# hair the hair mask missed (strands at the temples, the hairline): darker than the skin and greyer, in big pieces
+# (an opening wider than a brow is thick keeps the brows out of it)
+lum_f = (face_rgb * [0.2126, 0.7152, 0.0722]).sum(2)
+sat_f = (face_rgb.max(2) - face_rgb.min(2)) / np.maximum(face_rgb.max(2), 1e-3)
+sk = hard > 0
+if sk.sum() > 100:
+    upper = np.zeros_like(sk)
+    upper[:int(np.where(sk)[0].mean())] = True  # hair only comes in from above (the lips are dark and grey-ish too)
+    hairish = (sk & upper & (lum_f < 0.6 * np.median(lum_f[sk])) & (sat_f < 0.8 * np.median(sat_f[sk]))).astype(np.uint8)
+    hairish = cv2.morphologyEx(hairish, cv2.MORPH_CLOSE, np.ones((2 * k + 1, 2 * k + 1), np.uint8))
+    hairish = cv2.morphologyEx(hairish, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (6 * k + 1, 6 * k + 1)))
+    hairish = cv2.dilate(hairish, np.ones((2 * k + 1, 2 * k + 1), np.uint8))
+    print("HAIR in the face area left out:", int(hairish.sum()), "texels")
+    hard[hairish > 0] = 0
 hard = one_piece(hard)
 hard = cv2.morphologyEx(hard, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (10 * k + 1, 10 * k + 1)))
 hard = one_piece(hard)
@@ -115,6 +129,19 @@ if eyes:
     zone = cv2.dilate(np.isin(lab_d, eyes).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5 * k + 1, 5 * k + 1)))
     mask = mask * (1 - cv2.GaussianBlur(zone.astype(np.float32), (0, 0), k))
     print("EYES kept from HG:", len(eyes), "areas", [int(st_d[i, cv2.CC_STAT_AREA]) for i in eyes])
+# the nostrils too: the photo's dark nostrils seldom land on HG's and show as torn brown patches. HG's are its two
+# darker pieces below the eyes, near the middle
+if eyes:
+    eye_y = max(cen_d[i][1] for i in eyes)
+    mid_x = np.mean([cen_d[i][0] for i in eyes])
+    span = abs(cen_d[eyes[0]][0] - cen_d[eyes[-1]][0]) if len(eyes) == 2 else 20 * k
+    nos = [i for i in range(1, cnt_d) if i not in eyes and cen_d[i][1] > eye_y + 0.3 * span
+           and abs(cen_d[i][0] - mid_x) < 0.35 * span and cen_d[i][1] < eye_y + 0.85 * span
+           and st_d[i, cv2.CC_STAT_AREA] > k * k // 2]
+    if nos:
+        nz = cv2.dilate(np.isin(lab_d, nos).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (6 * k + 1, 4 * k + 1)))
+        mask = mask * (1 - cv2.GaussianBlur(nz.astype(np.float32), (0, 0), k))
+        print("NOSTRILS kept from HG:", len(nos))
 gain = np.median(fl[inner], axis=0) / np.maximum(np.median(bl[inner], axis=0), 1e-4)
 # brightness fully, colour only partly: a photo's colour cast is mostly its light, not the skin
 W = np.array([0.2126, 0.7152, 0.0722])
@@ -155,6 +182,15 @@ else:  # "detail": the photo's detail on HG's own broad colour: no patch, one sk
     else:
         fl = fl_detail
 outl = bl * (1 - mask[..., None]) + fl * mask[..., None]
+if eyes:  # HG's skin kept around the eyes takes the colour of the face just around it (else a pink or pale ring)
+    zm = cv2.GaussianBlur(zone.astype(np.float32), (0, 0), k)
+    ring = (cv2.dilate(zone, np.ones((4 * k + 1, 4 * k + 1), np.uint8)) > 0) & (zone == 0) & (hard > 0)
+    lid = (zone > 0) & (lum_b > 0.85 * np.median(lum_b[hard > 0]))  # the zone's skin, not the eye openings
+    if ring.sum() > 100 and lid.sum() > 100:
+        g_eye = np.median(outl[ring], axis=0) / np.maximum(np.median(outl[lid], axis=0), 1e-4)
+        g_eye = 1 + 0.8 * (np.clip(g_eye, 0.5, 2.0) - 1)
+        print("EYE ZONE colour matched to the face around it:", np.round(g_eye, 3).tolist())
+        outl = outl * (1 + (g_eye - 1) * zm[..., None])
 out = to_srgb(outl)
 res = np.concatenate([out[..., ::-1], base[..., 3:4]], axis=2) if base.shape[2] == 4 else out[..., ::-1]
 cv2.imwrite(out_path, (np.clip(res, 0, 1) * 255 + 0.5).astype(np.uint8))

@@ -40,7 +40,7 @@ gender = human.gender
 GROUPS = {"u_skull": "Forehead & brow", "eyes": "Eyes", "nose": "Nose", "cheeks": "Cheeks", "mouth": "Lips & mouth",
           "jaw": "Jaw", "chin": "Chin", "ears": "Ears", "l_skull": "Mouth area", "special": "Eyes",
           "Torso": "Torso", "Arms": "Arms", "Legs": "Legs", "Head": "Neck", "Muscles": "Muscles", "main": "Build",
-          "Special": "Style", "age_child": "Age"}
+          "Special": "Style", "age_child": "Age", "flame": "Face shape (FLAME)"}
 sliders = []
 for key in human.keys.all_livekeys:
     sub = key.subcategory
@@ -61,7 +61,10 @@ for key in human.keys.all_livekeys:
         label = "This person's face (likeness)"
     label = label[:1].upper() + label[1:]
     # ranges: HG's own panel lets face shapes go -2..2 (hard limit 10); a little more to tell faces apart
-    if part == "face" and group != "Face blend":
+    if key.name.startswith("flame_shape_"):  # 1.0 = 2 standard deviations of real faces: +-1.5 is already rare
+        label = "Shape " + key.name.rsplit("_", 1)[1]
+        lo, hi = -1.5, 1.5
+    elif part == "face" and group != "Face blend":
         lo, hi = -3.0, 3.0
     elif group == "Face blend":
         lo, hi = 0.0, 2.0
@@ -262,6 +265,48 @@ for s in sliders:
     sk.value = 0.0
     del s["path"]
 me.update()
+# hair cards (brows, the scalp cap, hair roots) follow the face sliders: each card point takes the move of the
+# nearest skin point, fully within 1.5 cm of the skin, fading to none at 8 cm (long strands don't stretch).
+# Without it a reshaped face sinks the brows into the skin or leaves them floating.
+from mathutils.kdtree import KDTree  # noqa: E402
+
+Mb = np.array(body.matrix_world)
+Pw = (Mb[:3, :3] @ mix.reshape(-1, 3).T).T + Mb[:3, 3]
+tree = KDTree(N)
+for i, p in enumerate(Pw):
+    tree.insert(p, i)
+tree.balance()
+face_sliders = [s for s in sliders if s["part"] == "face"]
+for o in hair_objs:
+    if o.type != "MESH" or not len(o.data.vertices):
+        continue
+    if o.data.shape_keys:
+        o.shape_key_clear()
+    n = len(o.data.vertices)
+    co = np.empty(n * 3)
+    o.data.vertices.foreach_get("co", co)
+    Mo = np.array(o.matrix_world)
+    W = (Mo[:3, :3] @ co.reshape(-1, 3).T).T + Mo[:3, 3]
+    near = np.empty(n, int)
+    dist = np.empty(n)
+    for i, p in enumerate(W):
+        _, near[i], dist[i] = tree.find(p)
+    w = np.clip((0.08 - dist) / (0.08 - 0.015), 0, 1)
+    if not w.any():
+        continue
+    to_local = np.linalg.inv(Mo[:3, :3]) @ Mb[:3, :3]
+    o.shape_key_add(name="Basis", from_mix=False)
+    for s in face_sliders:
+        off = body.data.shape_keys.key_blocks[s["morph"]]
+        c = np.empty(N * 3)
+        off.data.foreach_get("co", c)
+        D = (c - mix).reshape(-1, 3)[near] * w[:, None]
+        if not np.abs(D).max() > 1e-6:
+            continue
+        sk = o.shape_key_add(name=s["morph"], from_mix=False)
+        sk.data.foreach_set("co", co + (to_local @ D.T).T.ravel())
+        sk.value = 0.0
+    print("HAIR MORPHS", o.name, len(o.data.shape_keys.key_blocks) - 1, "of", len(face_sliders))
 print(f"morphs done ({time.time() - t0:.0f}s)")
 
 # the skin HG hides under the clothes (its mask modifiers, which don't export) as a vertex colour, red = hidden:

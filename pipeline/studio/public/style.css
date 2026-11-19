@@ -139,6 +139,8 @@ button.ghost { background: transparent; }
 .group { border-bottom: 1px solid var(--line); }
 .group summary { cursor: pointer; padding: 8px 0; font-weight: 600; font-size: 14px; }
 .slider { display: grid; gap: 2px; margin: 6px 0 10px; font-size: 13px; }
+.randomFace { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.randomFace small { flex-basis: 100%; color: var(--muted, #888); font-size: 12px; }
 .slider span { display: flex; justify-content: space-between; color: var(--muted); }
 .slider span b { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 .slider.changed span { color: var(--accent); }
