@@ -24,6 +24,8 @@ const setStep = (step) => {
 };
 
 const show = (v) => {
+  $('viewDaz').hidden = true;  // the Daz cast's page (daz.js)
+  document.querySelectorAll('#dazCast li').forEach((li) => li.classList.remove('on'));
   $('viewScenario').hidden = v !== 'scenario';
   $('viewPick').hidden = v !== 'pick';
   $('viewFace').hidden = v !== 'face';

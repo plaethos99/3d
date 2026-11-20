@@ -4,7 +4,9 @@ Usage: python pipeline/daz/make_daz_character.py <char_dir> <Name> [--from flame
        [--fresh] [--no-iray] [--daz-hair [--heavy-hair]] [--likeness N]
 <char_dir>/face_run/: front.png, left45.png, left75.png, right45.png, right75.png (the same person from five sides:
   engine/imagegen face_views.mjs, the right side mirrored), and <char_dir>/char.json: the character file g9_build.dsa
-  reads ({"sex": "female"|"male", "height_cm", "body_morphs", "figure_presets", "wear", "facial_hair": true|false}).
+  reads ({"sex": "female"|"male", "height_cm", "body_morphs", "figure_presets", "wear", "facial_hair": true|false},
+  "face_shape": {"jaw_width": -0.3, "chin_length": 0.4, ...} (g9_face.py shape controls), "blender_hair": {...}
+  (blender_hair.py)).
 Steps (each a script of pipeline/daz, pipeline/flame, pipeline/keentools):
   flame  the hair colour (top of the front picture) and the FLAME photo fit (flame_photofit.py: free, always run)
   fb     KeenTools FaceBuilder on the same pictures (fb_head.py, Blender 4.2) when it is installed and licensed;
@@ -130,8 +132,12 @@ if start <= 2:
         run([B5, "-b", os.path.join(fb_dir, "fb_head.blend"), "-P", os.path.join(ROOT, "pipeline", "keentools", "fb_to_run.py"),
              "--", os.path.join(fb_dir, "run"), "--like", pf], "FB_RUN_OK", ["SCALE"])
         head_run = os.path.join(fb_dir, "run")
-    run([B5, "-b", "-P", os.path.join(HERE, "g9_face.py"), "--", head_run, name, "--label", f"Face: {name}"], "G9_FACE_OK",
-        ["LANDMARKS", "RIG"])
+    shape = dict(char.get("face_shape", {}))  # the studio's Face sliders (g9_face.py 3c), e.g. {"jaw_width": -0.3}
+    if "lower_face_narrow" in shape:  # the older name
+        shape.setdefault("jaw_width", -float(shape.pop("lower_face_narrow")))
+    run([B5, "-b", "-P", os.path.join(HERE, "g9_face.py"), "--", head_run, name, "--label", f"Face: {name}"]
+        + (["--shape", json.dumps(shape)] if shape else []), "G9_FACE_OK",
+        ["LANDMARKS", "SHAPE", "RIG"])
     json.dump({"head_run": head_run, "face_from": "FaceBuilder" if use_fb else "FLAME photo fit"},
               open(os.path.join(cdir, "build.json"), "w"), indent=1)
 build = json.load(open(os.path.join(cdir, "build.json")))

@@ -4,7 +4,7 @@ Owner's goal: design a complete **movie** and a complete **game** themselves, wi
 script. Personal use first; licences (Daz Interactive, etc.) only if a project is released later. Budget is
 tight: free tools first.
 
-Last updated: 2026-11-20. Status marks: ✅ done · 🟡 partly · ⬜ not started.
+Last updated: 2026-11-21. Status marks: ✅ done · 🟡 partly · ⬜ not started.
 
 ---
 
@@ -15,13 +15,13 @@ Last updated: 2026-11-20. Status marks: ✅ done · 🟡 partly · ⬜ not start
 | R1 | The user enters a **story**. | ⬜ |
 | R2 | The user picks **Movie** or **Game**; every later step adapts to it. | ⬜ |
 | R3 | **Concept images** are generated automatically per character (poses too) with **Google Flow or Grok**, whichever is available. | 🟡 per character by script; no story-driven batch, no automatic fallback yet |
-| R4 | The user clicks **Model**: the character is built in **Daz (Genesis 9)** with face, body, **skinning, texturing, hair**. If unhappy, **remodel** in Daz. | 🟡 one command builds it (`pipeline/daz/make_daz_character.py`); no button, no remodel UI |
-| R5 | The character loads into **Character Studio** to be changed (face, body, skin, hair, clothes). | ⬜ studio still runs on Human Generator, not Daz |
+| R4 | The user clicks **Model**: the character is built in **Daz (Genesis 9)** with face, body, **skinning, texturing, hair**. If unhappy, **remodel** in Daz. | ✅ one command builds it (`pipeline/daz/make_daz_character.py`): face and skin in Daz, head hair grown in Blender; remodel = Rebuild face in the studio |
+| R5 | The character loads into **Character Studio** to be changed (face, body, skin, hair, clothes). | 🟡 Daz cast page: face shape and hair sliders, rebuild buttons; body, skin and clothes not yet |
 | R6 | **Rigging, skinning, animation** by the LLM (scripts) or tools like **Cascadeur**. | 🟡 Genesis 9 is rigged and skinned; our face morphs carry their rig; no animation yet |
 | R7 | **Props and environments** by Daz or Blender add-ons the owner installs. | ⬜ (library index exists: `pipeline/daz/daz_library.py`) |
 | R8 | **Animation** driven by the LLM. | ⬜ (an older video-to-motion pipeline exists in `pipeline/`) |
 | R9 | **Film lighting and camera** set up by the LLM in Daz or Blender. | ⬜ |
-| R10 | **Rendering** started and managed by the pipeline. | 🟡 Daz check renders by script; no shot renders |
+| R10 | **Rendering** started and managed by the pipeline. | 🟡 character renders in Blender EEVEE by script; no shot renders |
 | R11 | **Game**: everything exported to the game engine (Godot for game001). | ⬜ |
 | R12 | Movie vs Game: **high-poly, strand hair, 4K, path-traced** vs **low-poly + LODs, hair cards, baked 2K textures, baked lighting**. | ⬜ |
 | R13 | Driven from **any LLM harness** (Antigravity, VS Code + Cline, Claude Code, Hermes Desktop) with **cheap models** (DeepSeek Flash, Haiku, a cheap GPT). | ⬜ (scripts are one-command already; no MCP server or runbook yet) |
@@ -61,8 +61,8 @@ with which settings. Every tool takes JSON or flags in, writes files out, and pr
 | Mode | `mode` in `project.json` picks `profiles/movie.json` or `profiles/game.json` (poly budgets, hair type, texture size, lighting) | — | profiles, used by every stage |
 | Concepts | Flow or Grok (whichever is signed in): full-body concept → front portrait → turned views (left 45/75 made, right mirrored) | `engine/imagegen/` (`imagegen.mjs`, `face_views.mjs`) | story → prompts, pose sheets, automatic service fallback |
 | Model (Daz) | Face fit (FLAME always; FaceBuilder when licensed) → Genesis 9 face morph with rig formulas → photo skin baked and blended (seamless "detail" mode, Genesis 9's own eyes/nostrils/lips kept) → body shape and exact height → hair (with tint) and outfit → Daz scene → check renders → colour calibration against the portrait | `pipeline/daz/` (see FLOW.md) | outfit/hair chosen from the description, "Remodel" button |
-| Studio | Load the Daz character, edit, rebuild in Daz | studio UI (HG-based) | Daz → Blender → glTF preview; edits back to `char.json` |
-| Rig / skin | Genesis 9 is rigged and skinned; face morphs move the head joints | ✅ | Daz → Blender bridge (free Diffeomorphic DAZ Importer), engine skeleton retarget |
+| Studio | Load the Daz character, edit, rebuild | Daz cast page: face/hair sliders → `char.json` → rebuild (`pipeline/studio/daz.mjs`) | body, skin, clothes tabs; 3D preview |
+| Rig / skin | Genesis 9 is rigged and skinned; face morphs move the head joints; Daz → Blender bridge (Diffeomorphic) | ✅ | engine skeleton retarget |
 | Props / environments | Daz sets and props, Blender add-ons (Poly Haven, BlenderKit free), procedural layouts (game001's level builder) | library index | set builder, prop placement |
 | Animation | (a) video → motion (Flow/Grok clip → pose tracking → retarget), (b) Daz poses / Mixamo library, (c) Cascadeur free tier for polish; FACS expressions; lip-sync | old video-to-motion pipeline | retarget to Genesis 9, shot animation tool, lip-sync |
 | Lighting / camera | presets as tools (three-point, sunset, night, interior), HDRI skies (Poly Haven), camera moves from shot text | — | lighting and camera tools |
@@ -99,18 +99,27 @@ with which settings. Every tool takes JSON or flags in, writes files out, and pr
 - [x] Daz library index (`pipeline/daz/daz_library.py` → `tools/daz/library.json`)
 - [x] game001 cast built in Daz: Kira, Leo, Marcus, Recruiter (see `../game001/characters/DAZ_PROGRESS.md`)
 
-### In progress 🟡
-- [ ] Leo's blue hair re-dress (texture-compression fix after an Iray out-of-memory hang)
-- [ ] Recruiter: hair style is the closest installed (spiky undercut, not slicked back)
+- [x] Daz → Blender bridge: Diffeomorphic DAZ Importer 5.2.0, headless export + import + EEVEE renders (`pipeline/daz/daz_to_blender.py`)
+- [x] Head hair grown in Blender (curves, per-character style and colour from the portrait) (`pipeline/daz/blender_hair.py`)
+- [x] Face shape controls on top of the fit (jaw, chin, mouth, lips, nose, strength) (`pipeline/daz/g9_face.py`)
+- [x] Character Studio: Daz cast page with face and hair sliders and rebuild buttons (`pipeline/studio/daz.mjs`, `public/daz.js`)
+- [x] **Character flow final** (2026-11-21): face + skin in Daz, hair in Blender, Blender renders (FLOW.md)
+
+### Later fixes (during character design; the flow itself is final)
+- [ ] Leo: still reads older and broader than the portrait; eyes open wider (a heavier upper lid would help)
+- [ ] Blender skin a little paler/yellower than Daz's (the Iray translucency hue is not used in Blender)
+- [ ] Blender hair: top a bit flat and dense; hair cards for the game version
+- [ ] Kira, Marcus, Recruiter not yet rebuilt with the final flow (hair in Blender): `make_daz_character.py
+      <cast>/<name>/daz <Name> --from face`
+- [ ] Recruiter: slicked-back style (now possible with `blender_hair` settings)
 
 ### Remaining ⬜
 - [ ] Outfits matching the concepts (jacket, raincoat, bomber, three-piece suit): add Genesis 9 outfits (Daz
       freebies or bought) or generate our own garments
 - [ ] Guard android (armour: needs a sci-fi armour product or our own armour)
-- [x] Daz → Blender bridge: Diffeomorphic DAZ Importer 5.2.0, headless export + import + EEVEE renders (`pipeline/daz/daz_to_blender.py`)
 - [ ] Movie and game export profiles; Godot import (M1)
 - [ ] project.json, mode profiles, CLI, RUNBOOK.md, MCP server (M2)
-- [ ] Character Studio on Daz (M3)
+- [ ] Character Studio on Daz (M3): body, skin and clothes tabs, 3D preview (face and hair done)
 - [ ] Animation (M4), sets/lighting/render queue (M5), game polish (M6)
 - [ ] Remove the Human Generator path once Daz covers children and costumes (keep `tools/Human` until then)
 

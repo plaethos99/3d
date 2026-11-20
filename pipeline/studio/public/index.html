@@ -31,9 +31,42 @@
     <button class="ghost wide" id="newBtn">+ New character</button>
     <h3>Characters</h3>
     <ul id="projects" class="projects"></ul>
+    <h3>Daz cast <span class="hint">Genesis 9</span></h3>
+    <ul id="dazCast" class="projects"></ul>
   </aside>
 
   <section class="content">
+    <!-- A Daz character (Genesis 9): face and skin made in Daz, hair grown in Blender -->
+    <div id="viewDaz" class="view" hidden>
+      <h1 id="dazTitle">Character</h1>
+      <p class="lead">Face and skin are made in Daz Studio, the hair is grown in Blender. Move the sliders, then
+        rebuild: <b>Rebuild face</b> makes a new Daz face morph and skin and renders it again (about 8 minutes);
+        <b>Regrow hair</b> only grows the hair again (about 3 minutes).</p>
+      <div class="dazpics" id="dazPics"></div>
+      <div class="dazpanels">
+        <div class="dazpanel">
+          <h3 class="sub">Face <span class="hint">changes on top of the fit to the portrait</span></h3>
+          <div id="dazFace"></div>
+        </div>
+        <div class="dazpanel">
+          <h3 class="sub">Hair <span class="hint">grown in Blender</span></h3>
+          <div id="dazHair"></div>
+          <label class="slider"><span>Colour <b id="dazColourVal"></b></span>
+            <input type="color" id="dazColour"></label>
+          <label class="inline"><input type="checkbox" id="dazColourPortrait"> the portrait's colour</label>
+        </div>
+      </div>
+      <div class="row dazbar">
+        <button id="dazFaceBtn" class="primary">Rebuild face</button>
+        <button id="dazHairBtn" class="ghost">Regrow hair</button>
+        <button id="dazResetBtn" class="ghost">Undo my changes</button>
+        <span class="hint" id="dazNote"></span>
+      </div>
+      <div class="dazjob" id="dazJob" hidden>
+        <div><b id="dazJobState"></b> <span class="hint" id="dazJobSteps"></span></div>
+        <pre id="dazJobLog"></pre>
+      </div>
+    </div>
     <!-- Scenario -->
     <div id="viewScenario" class="view">
       <h1>Describe the character</h1>
@@ -245,5 +278,6 @@
   <img id="viewerImg" alt="">
 </div>
 <script src="/static/app.js"></script>
+<script type="module" src="/static/daz.js"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 # Handoff: AI 3D character tool (read this first)
 
-Updated 2026-11-20. For a new session, possibly another account, working in this folder. Everything that matters
+Updated 2026-11-21. For a new session, possibly another account, working in this folder. Everything that matters
 is in this folder and in the sibling game folder `../game001`; nothing depends on an old session's memory.
 Read with: **PLAN.md** (requirements, milestones, checklist) and **FLOW.md** (how the code works).
 
@@ -51,16 +51,22 @@ engine (game, Godot). Driven from any LLM harness (Antigravity, Cline, Claude Co
 
 ## 4. Current state (what works)
 
-The **Daz / Genesis 9 character path** works end to end by one command per character (details in FLOW.md):
+The **Daz / Genesis 9 character flow is final** (details in FLOW.md): face and skin made in Daz, head hair grown in
+Blender, renders in Blender. One command per character:
 
 ```
-python pipeline/daz/make_daz_character.py <char_dir> <Name> [--from flame|fb|face|skin|daz] [--rounds 2]
+python pipeline/daz/make_daz_character.py <char_dir> <Name> [--from flame|fb|face|skin|daz|blender] [--rounds 2]
 ```
 
-`<char_dir>/face_run/` holds five views of the person (front, left/right 45 and 75); `<char_dir>/char.json`
-holds sex, height, body morphs, eye preset, hair (presets + tint) and clothes. Output: a Genesis 9 character with
-our face (morph + rig formulas), calibrated skin, body and exact height, hair and clothes, saved as a Daz scene
-with check renders in `tests/daz/<name>_g9*`. A step-by-step log is appended to `<char_dir>/../DAZ_PROGRESS.md`.
+`<char_dir>/face_run/` holds five views of the person; `<char_dir>/char.json` holds sex, height, body morphs, eye
+preset, clothes (and beards), `face_shape` (face sliders) and `blender_hair` (hair style). Output: a Daz scene
+`tests/daz/<name>_g9.duf` (face morph with rig formulas, calibrated skin, body, clothes) and a Blender scene
+`tests/blender_daz/<name>_bl.blend` with the hair and renders `<name>_bl_{face,face34,body}.png`. A log line per step
+goes to `<char_dir>/../../DAZ_PROGRESS.md`.
+
+Editing without a terminal: **Character Studio** (`node pipeline/studio/server.mjs 4280`, http://localhost:4280,
+"Daz cast"): face and hair sliders, Rebuild face / Regrow hair. Known problems to fix during design: PLAN.md
+"Later fixes".
 
 ## 5. The game project in progress: `../game001` ("The Portal", Godot)
 
@@ -73,16 +79,12 @@ with check renders in `tests/daz/<name>_g9*`. A step-by-step log is appended to 
   `tests/daz/<name>_g9.duf` + renders. Comparison sheet: `../game001/characters/cast_daz.jpg`.
 - Progress log: **`../game001/characters/DAZ_PROGRESS.md`** (one entry per finished step, newest at the bottom).
 
-### What is going on right now (2026-11-20 afternoon)
+### What is going on right now (2026-11-21)
 
-- Leo's re-dress with blue hair tint was hanging (Iray "Memory allocation failed" on the CPU). Fixed with Iray
-  texture compression (256/512) in `g9_build.dsa`; the re-run `make_daz_character.py .../leo/daz Leo --from daz
-  --rounds 0` was rendering. Check `tests/daz/build_leo.txt` for `tint ... on N colour controls in M added nodes`
-  and the renders `tests/daz/leo_g9_{face,face34,body}.png`.
-- Recruiter re-dressed with a cool grey tint (#9EA3A8) on Mavick hair; still the closest installed style.
-- Uncommitted code: `pipeline/daz/` (`make_daz_character.py`, `daz_library.py`, `g9_calibrate.py`, changes to
-  `g9_build.dsa` and `g9_skin.py`), `pipeline/humgen/face_blend.py`, `pipeline/flame/*` (landmarks path), and
-  PLAN.md / FLOW.md / HANDOFF.md. Commit only when the owner asks.
+- The character flow is finished; the owner is going back to **game making** (game001). Character problems are
+  fixed later, during design, with the studio sliders or small pipeline fixes.
+- Leo is rebuilt with the final flow (jaw −0.35, navy Blender hair). Kira, Marcus and the Recruiter still have
+  their older Daz builds (hair in Daz, Iray renders); rebuild each with `--from face` when they are next designed.
 
 ## 6. How to resume (another account or a fresh session)
 
@@ -90,9 +92,9 @@ with check renders in `tests/daz/<name>_g9*`. A step-by-step log is appended to 
 2. Check nothing is running: no `DAZStudio.exe`, no `blender.exe` (Task Manager). Run Daz builds **one at a time**.
 3. Check sign-ins only if pictures are needed: `node engine/imagegen/imagegen.mjs state flow` (and `grok`); if
    `signin`, run `open` and ask the owner to sign in.
-4. To rebuild or re-dress a character: edit its `char.json`, then
-   `python pipeline/daz/make_daz_character.py ../game001/characters/<name>/daz <Name> --from daz --rounds 0`
-   (colours resume from the last calibration). New face pictures: `--from flame`.
+4. To rebuild or re-dress a character: use the studio's Daz cast page, or edit its `char.json` and run
+   `python pipeline/daz/make_daz_character.py ../game001/characters/<name>/daz <Name> --from face --rounds 0`
+   (`--from blender` for hair only; colours resume from the last calibration). New face pictures: `--from flame`.
 5. To add a new character: make `face_run/` with Flow (`imagegen.mjs edit flow 3:4 <concept> front.png
    "<portrait prompt>"`, then `face_views.mjs flow front.png <face_run> left45,left75`, mirror for the right),
    write `char.json` (use `python pipeline/daz/daz_library.py --find "<words>"` to find hair and clothes), run the
@@ -101,12 +103,10 @@ with check renders in `tests/daz/<name>_g9*`. A step-by-step log is appended to 
 
 ## 7. Next steps (in order)
 
-1. Finish Leo (blue hair visible?), then show the owner the full cast sheet.
-2. Outfits closer to the concepts (Genesis 9 outfits from Daz freebies, or generate our own garments); the Guard
-   android's armour.
-3. **M1** (PLAN.md): Daz → Blender bridge done (`pipeline/daz/daz_to_blender.py`; Diffeomorphic 5.2.0 installed in the portable Blender 5.2.3 as extension `import_daz`), next: movie export
-   (Cycles on GPU) and game export (LODs, hair cards, baked 2K textures) to Godot. Finish line: Kira walking in
-   Godot and rendering in Cycles.
+1. **Game making** (game001, Godot): the owner's focus now.
+2. **M1** (PLAN.md): game export of the characters (LODs, hair cards from the Blender hair, baked 2K textures,
+   engine skeleton) to Godot; movie export (Cycles). Finish line: Kira walking in Godot and rendering in Cycles.
+3. Outfits closer to the concepts; the Guard android's armour; rebuild Kira, Marcus, Recruiter with the final flow.
 4. **M2**: project.json + mode profiles + CLI + RUNBOOK.md + MCP server, so cheap models can drive it.
 
 ## 8. Lessons learned
@@ -116,4 +116,5 @@ with check renders in `tests/daz/<name>_g9*`. A step-by-step log is appended to 
   50 shape directions, strong shape regularisation and loose expression to be good.
 - Skin: blend the photo's **detail** onto the base skin's own colour (no seams); keep the base's eyes, nostrils and
   lips (located from landmarks, not guessed from colours); calibrate colour against the portrait in renders.
-- Daz scripting facts: FLOW.md §4. Blender exits 0 even when its script fails: every script prints `<NAME>_OK`.
+- Daz and Blender facts: FLOW.md §5. The owner judges by eye: show portrait vs render before calling a step done;
+  likeness tricks that score better by landmarks can look worse (the plain fit was preferred). Blender exits 0 even when its script fails: every script prints `<NAME>_OK`.

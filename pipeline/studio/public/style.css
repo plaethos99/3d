@@ -168,3 +168,16 @@ button.ghost { background: transparent; }
   .pickbar { left: 0; padding: 10px 16px; flex-wrap: wrap; }
   .titlebar { flex-direction: column; }
 }
+
+/* the Daz cast's page */
+.dazpics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 16px; }
+.dazpics figure { margin: 0; background: var(--panel); border-radius: var(--radius); overflow: hidden; cursor: zoom-in; }
+.dazpics img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; display: block; }
+.dazpics figcaption { font-size: 12px; color: var(--muted); padding: 4px 8px; }
+.dazpanels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.dazpanel { background: var(--panel); border-radius: var(--radius); padding: 4px 14px 10px; }
+.dazbar { margin-top: 16px; }
+.dazjob { background: var(--panel); border-radius: var(--radius); padding: 10px 14px; margin-top: 6px; }
+.dazjob pre { max-height: 220px; overflow: auto; font-size: 12px; white-space: pre-wrap; margin: 6px 0 0; }
+.slider input[type=color] { height: 30px; padding: 0; border: 0; background: none; }
+@media (max-width: 720px) { .dazpics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -31,6 +31,7 @@
  *   GET  /api/hair?gender=female        HG's hairstyles (with preview pictures)
  *   GET  /hair/<gender>/<category>/<name>.jpg   a hairstyle's preview
  *   GET  /runs/<id>/<path>              a project's file
+ * The Daz cast (Genesis 9: face and skin in Daz, hair in Blender): see daz.mjs (/api/daz/..., /daz/...).
  * Jobs run one at a time (Blender and the GPU); a project's job and its steps are in project.json ("job"), the
  * full output in job.log.
  */
@@ -39,6 +40,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, sta
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dazStudio } from './daz.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
@@ -55,6 +57,7 @@ const EDIT_MODEL = path.join(ROOT, 'pipeline', 'humgen', 'edit_model.py');
 const PYTHON = process.env.STUDIO_PYTHON || 'python';
 const PORT = Number(process.argv[2] || 4280);
 mkdirSync(RUNS, { recursive: true });
+const dazRoute = dazStudio(ROOT, PYTHON);  // the Daz cast (daz.mjs)
 
 // ---------- projects ----------
 const projectDir = (id) => path.join(RUNS, id);
@@ -363,6 +366,7 @@ const server = http.createServer(async (req, res) => {
       if (!file.startsWith(projectDir(parts[1]))) return sendJson(res, 403, { error: 'no' });
       return sendFile(res, file);
     }
+    if (await dazRoute(req, res, url, parts, { sendJson, sendFile, body })) return;
     if (parts[0] !== 'api') return sendJson(res, 404, { error: 'not found' });
 
     if (req.method === 'GET' && parts[1] === 'services') {

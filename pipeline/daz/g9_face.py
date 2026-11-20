@@ -204,6 +204,92 @@ if like_rounds and os.path.exists(photo):
             moves += step
         moves = best[1]
 
+# 3c. shape controls (char.json "face_shape", passed as --shape '<json>'; the studio's Face sliders): changes on top
+# of the fit, each a smooth region round some landmarks. All 0 = the plain fit.
+#   strength      the whole fit (1 = as fitted; 0.8 = 20% back towards Genesis 9's own face)
+#   jaw_width     the jawline and chin towards the middle (-0.35 = 35% narrower), below the lips only
+#   chin_width    the chin itself (fraction), chin_length / chin_forward (cm: longer / further forward)
+#   mouth_width, nose_width (fraction), lip_fullness (fraction: lips taller)
+import json as _json
+shape = _json.loads(opt("--shape", "{}") or "{}")
+if float(opt("--lower-narrow", "0")):  # the older option
+    shape.setdefault("jaw_width", -float(opt("--lower-narrow", "0")))
+shape_delta = np.zeros_like(P)
+if shape:
+    if "strength" in shape:
+        moves *= float(shape["strength"])
+    Q = P + moves
+
+    def lmp(*ids):  # the first of these landmarks found on Genesis 9 (some fall off the traced render)
+        for i in ids:
+            if lm_g9[i] >= 0:
+                return Q[lm_g9[i]]
+        return None
+
+    def ss(a, b, x):  # 0 at a, 1 at b (smooth)
+        t = np.clip((x - a) / (b - a), 0, 1)
+        return t * t * (3 - 2 * t)
+
+    def spread(k, n=20):  # over the skin: no crease where a change fades
+        for _ in range(n):
+            k2 = k.copy()
+            for i in region:
+                if nb[i]:
+                    k2[i] = 0.5 * k[i] + 0.5 * k[nb[i]].mean()
+            k = k2
+        return k
+
+    def near(pts, r):  # 1 within r/3 of any of these points, 0 beyond r
+        pts = [p for p in pts if p is not None]
+        if not pts:
+            return np.zeros(len(Q))
+        d = np.min(np.linalg.norm(Q[:, None] - np.array(pts)[None], axis=2), axis=1)
+        return ss(r, r / 3, d) * w
+
+    mc = [lmp(61, 76, 62, 40), lmp(291, 306, 292, 270)]
+    chin = lmp(152, 175, 199, 377, 148)
+    ja = [lmp(58, 172, 136, 132, 215), lmp(288, 397, 365, 361, 435)]
+    lips = [lmp(i) for i in (0, 17, 37, 267, 84, 314, 61, 291, 13, 14, 40, 270, 91, 321)]
+    nose = [lmp(i) for i in (129, 358, 98, 327, 2, 64, 294)]
+    z, y, x = Q[:, 2], Q[:, 1], Q[:, 0]
+    xm = chin[0] if chin is not None else 0.0
+    lips_w = spread(near(lips, 0.012), 8)
+    done = []
+    if shape.get("jaw_width") and all(v is not None for v in mc + ja) and chin is not None:
+        zm = (mc[0][2] + mc[1][2]) / 2
+        yb = (ja[0][1] + ja[1][1]) / 2  # the jaw's angle, front to back (front is -y)
+        k = ss(zm - 0.004, zm - 0.02, z) * ss(chin[2] - 0.055, chin[2] - 0.008, z) * ss(yb + 0.028, yb - 0.02, y) * w
+        k = spread(k) * (1 - lips_w)  # below the lips: the mouth keeps its width
+        shape_delta[:, 0] += (x - xm) * k * float(shape["jaw_width"])
+        done.append("jaw_width")
+    if chin is not None:
+        cw = spread(near([chin, lmp(148), lmp(377), lmp(176), lmp(400)], 0.024), 12) * (1 - lips_w)
+        if shape.get("chin_width"):
+            shape_delta[:, 0] += (x - xm) * cw * float(shape["chin_width"])
+            done.append("chin_width")
+        if shape.get("chin_length"):
+            shape_delta[:, 2] -= cw * float(shape["chin_length"]) / 100
+            done.append("chin_length")
+        if shape.get("chin_forward"):
+            shape_delta[:, 1] -= cw * float(shape["chin_forward"]) / 100
+            done.append("chin_forward")
+    if shape.get("mouth_width") and all(v is not None for v in mc):
+        mw = spread(near(lips, 0.016), 10)
+        shape_delta[:, 0] += (x - (mc[0][0] + mc[1][0]) / 2) * mw * float(shape["mouth_width"])
+        done.append("mouth_width")
+    if shape.get("lip_fullness") and all(v is not None for v in mc):
+        lw = spread(near(lips, 0.010), 8)
+        shape_delta[:, 2] += (z - (mc[0][2] + mc[1][2]) / 2) * lw * float(shape["lip_fullness"])
+        done.append("lip_fullness")
+    if shape.get("nose_width") and any(p is not None for p in nose):
+        nw = spread(near(nose, 0.014), 10)
+        nx = np.mean([p[0] for p in nose if p is not None])
+        shape_delta[:, 0] += (x - nx) * nw * float(shape["nose_width"])
+        done.append("nose_width")
+    moves += shape_delta
+    print("SHAPE", ", ".join(f"{k} {shape[k]}" for k in ["strength"] + done if k in shape) or "nothing applied",
+          "| moved %d points" % int((np.linalg.norm(shape_delta, axis=1) > 1e-5).sum()))
+
 # 4. the DSON morph (Daz's frame: cm, y up, facing +z)
 dm = np.c_[moves[:, 0], moves[:, 2], -moves[:, 1]] * 100.0
 nz = np.where(np.linalg.norm(dm, axis=1) > 1e-4)[0]
@@ -323,6 +409,20 @@ kat = me.attributes.new("keep", "FLOAT", "POINT")
 kat.data.foreach_set("value", kfull)
 print("KEEP Genesis 9's own skin at eyes, nostrils, lips:", int((keep_w > 0.5).sum()), "points")
 print("FACE region", int((face_w > 0.5).sum()), "points")
+if np.abs(shape_delta).max() > 0:  # the shape controls on our head too (each point: its nearest Genesis 9 point's
+    # change), so the photo's skin follows the new shape when baked (no shadow left where the jaw was)
+    from mathutils.kdtree import KDTree as _KD
+    Q0 = P + moves - shape_delta
+    hot = np.where(np.linalg.norm(shape_delta, axis=1) > 1e-6)[0]
+    kd2 = _KD(len(hot))
+    for j, i in enumerate(hot):
+        kd2.insert(Vector(Q0[i]), j)
+    kd2.balance()
+    S_al = S_al.copy()
+    for vi in range(len(S_al)):
+        co, j, dist = kd2.find(Vector(S_al[vi]))
+        if j is not None and dist < 0.01:
+            S_al[vi] += shape_delta[hot[j]]
 head.data.vertices.foreach_set("co", (np.linalg.inv(Mh[:3, :3]) @ (S_al - Mh[:3, 3]).T).T.ravel())
 head.data.update()
 clay = bpy.data.materials.new("clay")
