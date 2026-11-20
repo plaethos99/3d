@@ -1,7 +1,7 @@
 """How plausible is a reconstructed head? Fit FLAME to its face landmarks and see where it can't follow.
 
 Usage: tools/pose-env/Scripts/python.exe -I pipeline/flame/flame_fit.py <subject_fit.json> [<subject_fit.json> ...]
-       [--model tools/flame/flame2023_Open.pkl] [--landmarks tests/flame/flame_landmarks.json] [--shapes 100]
+       [--model tools/flame/flame2023_Open.pkl] [--landmarks tools/flame/flame_landmarks.json] [--shapes 100]
        [--reg 1.0] [--out fit.json] [--save-head heads.npz]  (with one subject_fit: the fitted head, for flame_head.py)
 FLAME (3,800 real head scans) is fitted to the head's MediaPipe landmarks: a similarity (scale, turn, move) and
 the first --shapes identity values, kept near real faces (ridge --reg on the values, which are in standard
@@ -41,7 +41,7 @@ def opt(name, default):
 fits = [a for i, a in enumerate(sys.argv[1:], 1) if a.endswith(".json") and sys.argv[i - 1] not in
         ("--landmarks", "--out", "--save-head")]
 m = load(os.path.join(ROOT, opt("--model", "tools/flame/flame2023_Open.pkl")))
-lm = np.array(json.load(open(os.path.join(ROOT, opt("--landmarks", "tests/flame/flame_landmarks.json"))))["landmarks"])
+lm = np.array(json.load(open(os.path.join(ROOT, opt("--landmarks", "tools/flame/flame_landmarks.json"))))["landmarks"])
 K = int(opt("--shapes", "100"))
 reg = float(opt("--reg", "1.0"))
 # MediaPipe face regions (landmark ids), for the per-region report

@@ -56,7 +56,7 @@ m = load(os.path.join(ROOT, "tools", "flame", "flame2023_Open.pkl"))
 T, SD = m["v_template"], m["shapedirs"]
 SHAPE, EXPR = SD[:, :, :KS], SD[:, :, m["n_shape"]:m["n_shape"] + KE]
 F = m["faces"]
-lm = np.array(json.load(open(os.path.join(ROOT, "tests", "flame", "flame_landmarks.json")))["landmarks"])[:468]
+lm = np.array(json.load(open(os.path.join(ROOT, "tools", "flame", "flame_landmarks.json")))["landmarks"])[:468]
 
 # 1. landmarks in every photo
 DETECT = r'''

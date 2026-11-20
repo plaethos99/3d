@@ -85,9 +85,15 @@ if sk.sum() > 100:
     upper = np.zeros_like(sk)
     upper[:int(np.where(sk)[0].mean())] = True  # hair only comes in from above (the lips are dark and grey-ish too)
     hairish = (sk & upper & (lum_f < 0.6 * np.median(lum_f[sk])) & (sat_f < 0.8 * np.median(sat_f[sk]))).astype(np.uint8)
+    # coloured hair (blue, green, purple...): skin always has more red than blue, hair like this doesn't. Thin
+    # strands count too, so it skips the opening below (which keeps only big dark pieces)
+    # (by colour direction: skin's red minus blue is large; any hair's - blue, green, grey-blue strands - is not)
+    rb = face_rgb[..., 0] - face_rgb[..., 2]
+    coloured = (sk & upper & (rb < 0.55 * np.median(rb[sk]))).astype(np.uint8)
     hairish = cv2.morphologyEx(hairish, cv2.MORPH_CLOSE, np.ones((2 * k + 1, 2 * k + 1), np.uint8))
     hairish = cv2.morphologyEx(hairish, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (6 * k + 1, 6 * k + 1)))
-    hairish = cv2.dilate(hairish, np.ones((2 * k + 1, 2 * k + 1), np.uint8))
+    hairish = cv2.dilate(hairish | cv2.morphologyEx(coloured, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)),
+                         np.ones((2 * k + 1, 2 * k + 1), np.uint8))
     print("HAIR in the face area left out:", int(hairish.sum()), "texels")
     hard[hairish > 0] = 0
 hard = one_piece(hard)
@@ -139,9 +145,20 @@ if eyes:
            and abs(cen_d[i][0] - mid_x) < 0.35 * span and cen_d[i][1] < eye_y + 0.85 * span
            and st_d[i, cv2.CC_STAT_AREA] > k * k // 2]
     if nos:
-        nz = cv2.dilate(np.isin(lab_d, nos).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (6 * k + 1, 4 * k + 1)))
+        nz = np.isin(lab_d, nos).astype(np.uint8)
+        if len(nos) == 1:  # only one found: mirror it across the face's middle so both nostrils stay HG's
+            nz = nz | cv2.flip(nz, 1) if abs(cen_d[nos[0]][0] - mid_x) > k else nz
+        nz = cv2.dilate(nz, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (6 * k + 1, 4 * k + 1)))
         mask = mask * (1 - cv2.GaussianBlur(nz.astype(np.float32), (0, 0), k))
         print("NOSTRILS kept from HG:", len(nos))
+# a "keep the base's own skin here" mask from the caller (Genesis 9: its eyes, nostrils and lips, from its landmarks),
+# applied after the face mask was made one piece (that fills holes)
+kp = os.path.join(face_dir, "bake_keep.png")
+if os.path.exists(kp):
+    keep = read(kp, n)
+    keep = keep[..., 0] if keep.ndim == 3 else keep
+    mask = mask * (1 - cv2.GaussianBlur(np.clip(keep, 0, 1).astype(np.float32), (0, 0), k))
+    print("KEEP base skin where the caller said:", round(float((keep > 0.5).mean()) * 100, 2), "% of the texture")
 gain = np.median(fl[inner], axis=0) / np.maximum(np.median(bl[inner], axis=0), 1e-4)
 # brightness fully, colour only partly: a photo's colour cast is mostly its light, not the skin
 W = np.array([0.2126, 0.7152, 0.0722])

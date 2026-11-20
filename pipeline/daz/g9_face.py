@@ -237,6 +237,22 @@ attr = me.attributes.new("face", "FLOAT", "POINT")
 full = np.zeros(len(me.vertices), np.float32)
 full[used] = face_w
 attr.data.foreach_set("value", full)
+# where Genesis 9's own skin stays (it lines up with its own eyelids, nostrils and lips; the photo's land a little
+# off and show as rims, blobs or rings): around those landmarks, by distance on the morphed head
+KEEP = {"eyes": ([33, 133, 159, 145, 160, 144, 263, 362, 386, 374, 387, 373], 0.009),
+        "nostrils": ([79, 309, 60, 290, 75, 305, 98, 327, 2], 0.006),
+        "lips": ([0, 17, 61, 291, 37, 267, 84, 314, 13, 14, 81, 311, 178, 402], 0.007)}
+keep_w = np.zeros(len(used))
+for _, (lms, rad) in KEEP.items():
+    pts = np.array([Pm[remap[lm_g9[i]]] for i in lms if lm_g9[i] >= 0 and lm_g9[i] in remap])
+    if len(pts):
+        dmin = np.min(np.linalg.norm(Pm[:, None] - pts[None], axis=2), axis=1)
+        keep_w = np.maximum(keep_w, np.clip(1.5 - dmin / rad, 0, 1))
+kfull = np.zeros(len(me.vertices), np.float32)
+kfull[used] = keep_w
+kat = me.attributes.new("keep", "FLOAT", "POINT")
+kat.data.foreach_set("value", kfull)
+print("KEEP Genesis 9's own skin at eyes, nostrils, lips:", int((keep_w > 0.5).sum()), "points")
 print("FACE region", int((face_w > 0.5).sum()), "points")
 head.data.vertices.foreach_set("co", (np.linalg.inv(Mh[:3, :3]) @ (S_al - Mh[:3, 3]).T).T.ravel())
 head.data.update()
