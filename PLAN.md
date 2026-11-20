@@ -107,7 +107,8 @@ with which settings. Every tool takes JSON or flags in, writes files out, and pr
 - [ ] Outfits matching the concepts (jacket, raincoat, bomber, three-piece suit): add Genesis 9 outfits (Daz
       freebies or bought) or generate our own garments
 - [ ] Guard android (armour: needs a sci-fi armour product or our own armour)
-- [ ] Daz → Blender bridge; movie and game export profiles; Godot import (M1)
+- [x] Daz → Blender bridge: Diffeomorphic DAZ Importer 5.2.0, headless export + import + EEVEE renders (`pipeline/daz/daz_to_blender.py`)
+- [ ] Movie and game export profiles; Godot import (M1)
 - [ ] project.json, mode profiles, CLI, RUNBOOK.md, MCP server (M2)
 - [ ] Character Studio on Daz (M3)
 - [ ] Animation (M4), sets/lighting/render queue (M5), game polish (M6)

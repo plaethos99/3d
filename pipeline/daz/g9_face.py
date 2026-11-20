@@ -241,7 +241,9 @@ attr.data.foreach_set("value", full)
 # off and show as rims, blobs or rings): around those landmarks, by distance on the morphed head
 KEEP = {"eyes": ([33, 133, 159, 145, 160, 144, 263, 362, 386, 374, 387, 373], 0.009),
         "nostrils": ([79, 309, 60, 290, 75, 305, 98, 327, 2], 0.006),
-        "lips": ([0, 17, 61, 291, 37, 267, 84, 314, 13, 14, 81, 311, 178, 402], 0.007)}
+        "lips": ([0, 17, 61, 291, 37, 267, 84, 314, 13, 14, 81, 311, 178, 402], 0.007),
+        # between the eyes: a fringe's strand tips land on the nose bridge and bake as a dark smudge
+        "bridge": ([168, 6, 9], 0.008)}
 keep_w = np.zeros(len(used))
 for _, (lms, rad) in KEEP.items():
     pts = np.array([Pm[remap[lm_g9[i]]] for i in lms if lm_g9[i] >= 0 and lm_g9[i] in remap])

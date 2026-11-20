@@ -86,6 +86,22 @@ try {
                     if (pr.getLabel() != "Translucency Color" || true) { pr.setMap(skin.maps[tile]); setOk = true; }
                 }
             }
+            // the calibration's hue (g9_skin.py): on the Translucency Color, so the colour maps stay skin-coloured
+            var tt = skin.translucency_tint_linear_rgb;
+            if (tt) {
+                var c8 = [];
+                for (var ci = 0; ci < 3; ci++) {
+                    var lv = Math.max(0, Math.min(1, tt[ci]));
+                    c8.push(Math.round(255 * (lv <= 0.0031308 ? lv * 12.92 : 1.055 * Math.pow(lv, 1 / 2.4) - 0.055)));
+                }
+                for (var q4 = 0; q4 < mat.getNumProperties(); q4++) {
+                    var pr4 = mat.getProperty(q4);
+                    if (pr4.getLabel() == "Translucency Color" && pr4.setColorValue) {
+                        pr4.setColorValue(new Color(c8[0], c8[1], c8[2]));
+                        if (tile == "Head") log("translucency tint " + c8.join(","));
+                    }
+                }
+            }
             var ex = (skin.extra_maps || {})[tile] || {};  // e.g. a Translucency Weight map over facial hair
             for (var xl in ex) {
                 var xp = mat.findProperty ? null : null;
@@ -129,7 +145,8 @@ try {
                         var m2 = sh2.getMaterial(mi2);
                         for (var q3 = 0; q3 < m2.getNumProperties(); q3++) {
                             var p3 = m2.getProperty(q3), lb = p3.getLabel();
-                            if (/(Base Color|Diffuse Color|Root Color|Tip Color|Highlight Color|Dye Color|Hair Color)$/.test(lb) && p3.setColorValue) {
+                            // strand hair (Dual Lobe Hair) shows mostly its Root/Tip Transmission Colors: tint those too
+                            if (/(Base Color|Diffuse Color|Root Color|Tip Color|Highlight Color|Dye Color|Hair Color|Transmission Color|Viewport Color)$/.test(lb) && p3.setColorValue) {
                                 p3.setColorValue(col); nset++;
                             }
                         }

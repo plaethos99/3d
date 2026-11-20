@@ -104,7 +104,7 @@ with check renders in `tests/daz/<name>_g9*`. A step-by-step log is appended to 
 1. Finish Leo (blue hair visible?), then show the owner the full cast sheet.
 2. Outfits closer to the concepts (Genesis 9 outfits from Daz freebies, or generate our own garments); the Guard
    android's armour.
-3. **M1** (PLAN.md): Daz → Blender bridge (Diffeomorphic DAZ Importer, free; ask before downloading), movie export
+3. **M1** (PLAN.md): Daz → Blender bridge done (`pipeline/daz/daz_to_blender.py`; Diffeomorphic 5.2.0 installed in the portable Blender 5.2.3 as extension `import_daz`), next: movie export
    (Cycles on GPU) and game export (LODs, hair cards, baked 2K textures) to Godot. Finish line: Kira walking in
    Godot and rendering in Cycles.
 4. **M2**: project.json + mode profiles + CLI + RUNBOOK.md + MCP server, so cheap models can drive it.

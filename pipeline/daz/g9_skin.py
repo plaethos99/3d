@@ -2,7 +2,8 @@
 
 Usage: python pipeline/daz/g9_skin.py <head_dir> <name> [--sex feminine|masculine]
        [--library "C:/Users/Public/Documents/My DAZ 3D Library"] [--gain r,g,b] [--hair-gain r,g,b] [--rebake]
---gain: an extra colour correction on all tiles (linear, from g9_calibrate.py: render vs photo); --hair-gain: one on
+--gain: the calibration's correction (linear, from g9_calibrate.py: render vs photo): its brightness on all tiles,
+  its hue as the Translucency Color; --hair-gain: one on
 the facial hair painted in the face texture (moustache, beard, brows: dark, grey texels in the face); the bake is
 reused unless --rebake.
 head_dir: the face run g9_face.py used (head.blend's texture: textures/skin_colour.png, photo_coverage.png,
@@ -156,6 +157,13 @@ def run(cmd, ok):
 
 gain_x = [float(v) for v in opt("--gain", "1,1,1").split(",")]
 hair_x = [float(v) for v in opt("--hair-gain", "1,1,1").split(",")]
+# the calibration's correction split in two: its brightness goes into the colour maps (they stay skin-coloured), its
+# hue into the Translucency Color (g9_build.dsa): Iray's subsurface light reddens the skin, and correcting that hue
+# in the colour maps made them yellow-grey, green wherever little light passes through (temples, neck, in Blender)
+_y = 0.2126 * gain_x[0] + 0.7152 * gain_x[1] + 0.0722 * gain_x[2]
+hue_x = [g / _y for g in gain_x]
+trans_tint = [h / max(hue_x) for h in hue_x]
+gain_x = [_y] * 3
 # 1. bake (once: the same for every calibration round), the photo's coverage limited to the face region
 if "--rebake" in sys.argv or not os.path.exists(os.path.join(bake_dir, "bake_face.png")):
     text = run([BLENDER, "-b", fit, "--python-expr", BAKE, "--", fit, os.path.join(head_dir, "textures"), bake_dir],
@@ -185,7 +193,7 @@ head_png = os.path.join(out_dir, f"{name}_Head_D_1001.png")
 text = run([PY, "-I", os.path.join(ROOT, "pipeline", "humgen", "face_blend.py"), bake_dir, pref + "_Head_D_1001.jpg",
             head_png, "--tone", "detail"], "FACE_BLEND_OK")
 gain = json.loads(re.search(r"TONE gain \(photo / HG, linear R G B\): (\[[^\]]+\])", text).group(1))
-print("TONE gain (linear R G B)", gain, "| correction", gain_x, "| facial hair", hair_x)
+print("TONE gain (linear R G B)", gain, "| correction", gain_x, "| translucency tint", [round(t, 3) for t in trans_tint], "| facial hair", hair_x)
 # the photo's detail (pores, brows, lips, facial hair) rides on the base skin's own even colour (no lighter or darker
 # patch, no edge round the face); the head then takes the same tone shift as the body tiles, and the calibration on top
 text = run([PY, "-I", "-c", HEAD_FIX, head_png, head_png[:-4] + ".jpg", bake_dir,
@@ -203,6 +211,7 @@ extra = {}
 if hair_x != [1.0, 1.0, 1.0] or "--facial-hair" in sys.argv:  # only where there is facial hair to treat
     extra["Head"] = {"Translucency Weight": maps["Head"].replace("_D_1001.jpg", "_TW_1001.png")}
 json.dump({"extra_maps": extra, "base_skin": os.path.basename(base), "base_prefix": pref, "tone_gain_linear_rgb": gain,
-           "correction_linear_rgb": gain_x, "facial_hair_linear_rgb": hair_x, "maps": maps},
+           "correction_linear_rgb": gain_x, "translucency_tint_linear_rgb": trans_tint, "facial_hair_linear_rgb": hair_x,
+           "maps": maps},
           open(os.path.join(out_dir, "skin.json"), "w"), indent=1)
 print("G9_SKIN_OK", out_dir)

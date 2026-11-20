@@ -1,6 +1,6 @@
 """One Genesis 9 character in Daz Studio from a person's turned views: face, rig, skin, body, hair, clothes, renders.
 
-Usage: python pipeline/daz/make_daz_character.py <char_dir> <Name> [--from flame|fb|face|skin|daz] [--rounds 2]
+Usage: python pipeline/daz/make_daz_character.py <char_dir> <Name> [--from flame|fb|face|skin|daz] [--rounds 2] [--fresh]
 <char_dir>/face_run/: front.png, left45.png, left75.png, right45.png, right75.png (the same person from five sides:
   engine/imagegen face_views.mjs, the right side mirrored), and <char_dir>/char.json: the character file g9_build.dsa
   reads ({"sex": "female"|"male", "height_cm", "body_morphs", "figure_presets", "wear", "facial_hair": true|false}).
@@ -133,6 +133,8 @@ if start <= 4:
            os.path.join(cdir, "char.json"), "--sex", sex, "--rounds", rounds]
     if char.get("facial_hair"):
         cmd.append("--facial-hair")
+    if "--fresh" in sys.argv:  # calibrate from scratch, not from the last run's corrections
+        cmd.append("--fresh")
     r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     print("\n".join("    " + ln[:220] for ln in r.stdout.splitlines() if ln.startswith("round")))
     if "G9_CALIBRATE_OK" not in r.stdout:

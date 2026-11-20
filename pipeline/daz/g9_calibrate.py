@@ -3,7 +3,7 @@
 Usage: python pipeline/daz/g9_calibrate.py <head_dir> <tex name> <morph id> <out name> <photo> <character.json>
        [--sex feminine|masculine] [--rounds 2] [--facial-hair] [--daz "C:/Program Files/DAZ 3D/DAZStudio6/DAZStudio.exe"]
 Each round: g9_skin.py with the current corrections -> g9_build.dsa in its own Daz Studio instance (scene and
-renders into tests/daz/<out name>_g9*) -> MediaPipe on the photo and on the face render: skin = cheeks and forehead,
+renders into tests/daz/<out name>_g9*) -> MediaPipe on the photo and on the face render: skin = cheeks,
 upper lip = the moustache's place (between the nose and the mouth) -> corrections multiplied by
 (photo / render)^0.8 per channel in linear light (damped, clamped). --facial-hair: also correct the moustache/beard
 painted in the face (otherwise the upper lip only counts as skin). Writes tests/daz/<out name>_calibration.json.
@@ -39,7 +39,8 @@ for path in sys.argv[2:]:
     def patch(pt):
         x, y = pt.astype(int)
         return im[y - rad:y + rad, x - rad:x + rad].reshape(-1, 3)[:, ::-1].astype(float)
-    skin = np.vstack([patch(p[i]) for i in (50, 280, 151)])
+    # cheeks only: a forehead patch (151) reads a fringe's hair as skin (blue hair -> a cool, greenish correction)
+    skin = np.vstack([patch(p[i]) for i in (50, 280, 205, 425)])
     lip = np.vstack([patch((p[164] + p[0]) / 2), patch((p[167] + p[37]) / 2), patch((p[393] + p[267]) / 2)])
     out[path] = {"skin": np.median(skin, 0).tolist(), "upper_lip": np.median(lip, 0).tolist()}
 print("MEASURED", json.dumps(out))
@@ -77,11 +78,14 @@ def daz_build():
               os.path.join(D, f"{out_name}_g9.png"), os.path.abspath(char)):
         args += ["-scriptArg", a.replace("\\", "/")]
     args.append(os.path.join(HERE, "g9_build.dsa").replace("\\", "/"))
-    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     t = time.time()
     while time.time() - t < 4800:  # Iray renders on the CPU here (heavy strand hair takes long)
         if os.path.exists(report) and "done" in open(report, errors="replace").read():
             return face
+        if proc.poll() is not None:  # Daz exited without finishing: usually Iray ran out of memory
+            raise SystemExit("G9_CALIBRATE_FAILED: Daz exited before finishing (Iray out of memory? see Daz's log.txt: "
+                             "look for 'Memory allocation failed'); lighter hair or clothes usually fix it")
         time.sleep(10)
     raise SystemExit("G9_CALIBRATE_FAILED: Daz build did not finish")
 
