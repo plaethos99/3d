@@ -1,6 +1,7 @@
 """A Daz Studio scene (Genesis 9 character) in Blender: imported with the Diffeomorphic DAZ Importer, lit and rendered.
 
 Usage: python pipeline/daz/daz_to_blender.py <scene.duf> <out_dir> [--name leo] [--engine eevee|cycles] [--samples 64]
+       [--hair hair.json] [--photo portrait.png --morph <Daz morph .dsf>] [--likeness 3] [--reexport]
 Steps (no clicks):
   1. Daz Studio exports <scene>.dbz next to the scene (the add-on's own export_to_blender.dsa, made headless here:
      its dialog and message box removed; written into tools/daz/, not the repo, it is GPL code of the add-on)
@@ -92,12 +93,15 @@ json.dump(data["rootpaths"], open(roots, "w"), indent=1)
 
 # 3. Blender: import, light, render
 r = subprocess.run([B5, "-b", "--factory-startup", "-P", os.path.join(HERE, "blender_daz_render.py"), "--",
-                    scene, roots, out_dir, name, "--engine", opt("--engine", "eevee"), "--samples", opt("--samples", "64")],
+                    scene, roots, out_dir, name, "--engine", opt("--engine", "eevee"), "--samples", opt("--samples", "64")]
+                   + (["--hair", os.path.abspath(opt("--hair", ""))] if opt("--hair", "") else [])
+                   + (["--photo", os.path.abspath(opt("--photo", "")), "--morph", opt("--morph", ""),
+                       "--likeness", opt("--likeness", "3")] if opt("--photo", "") else []),
                    capture_output=True, text=True, encoding="utf-8", errors="replace")
 text = r.stdout + r.stderr
 open(os.path.join(out_dir, f"{name}_bl_log.txt"), "w", encoding="utf-8").write(text)
 for ln in text.splitlines():
-    if ln.startswith(("IMPORTED", "RENDER", "CAMERA", "WARN")):
+    if ln.startswith(("IMPORTED", "RENDER", "CAMERA", "WARN", "LIKENESS", "LIDS", "COLOUR", "HAIR")):
         print("   ", ln[:200])
 if "BLENDER_DAZ_RENDER_OK" not in text:
     print(text[-3000:])

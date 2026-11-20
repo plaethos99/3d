@@ -1,7 +1,8 @@
 """Blender side of daz_to_blender.py: Easy Import of a Daz scene (Diffeomorphic), studio lights, three renders.
 
 blender -b --factory-startup -P blender_daz_render.py -- <scene.duf> <root_paths.json> <out_dir> <name>
-       [--engine eevee|cycles] [--samples 64]
+       [--engine eevee|cycles] [--samples 64] [--photo portrait.png --morph <Daz morph .dsf>] [--likeness 3]
+--photo: the face matched to the portrait first (blender_likeness.py), and written into the Daz morph with --morph.
 Shots like g9_build.dsa (same framing, so Daz and Blender renders compare side by side): face (front, 85 mm),
 face34 (35 degrees), body (25 degrees, 50 mm). Prints BLENDER_DAZ_RENDER_OK.
 """
@@ -125,6 +126,27 @@ def shot(tag, az, dist, lens, target, w, h):
     bpy.ops.render.render(write_still=True)
     print("RENDER", tag, os.path.exists(sc.render.filepath), f"{time.time() - t:.0f}s", flush=True)
 
+
+# the face matched to the portrait (and written back into the Daz morph), before the final pictures
+if opt("--photo", ""):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import blender_likeness  # noqa: E402
+    body = next(o for o in bpy.data.objects if o.type == "MESH" and o.name.startswith("Genesis 9 Mesh"))
+    blender_likeness.run(opt("--photo", ""), body, eye, out_dir, morph_path=opt("--morph", "") or None,
+                         rounds=int(opt("--likeness", "3")))
+    # skin and hair colour matched to the portrait (multiply nodes in the materials; saved in the .blend)
+    import json as _json  # noqa: E402
+    import blender_colour  # noqa: E402
+    if int(opt("--colour", "0")):  # off by default: the skin textures are Daz's (calibrated with Iray)
+        col = blender_colour.run(opt("--photo", ""), eye, out_dir, rounds=int(opt("--colour", "0")))
+        _json.dump(col, open(os.path.join(out_dir, f"{name}_bl_colour.json"), "w"), indent=1)
+
+# head hair grown in Blender (blender_hair.py)
+if opt("--hair", ""):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import json as _json2  # noqa: E402
+    import blender_hair  # noqa: E402
+    blender_hair.grow(rig, eye, _json2.load(open(opt("--hair", ""))))
 
 # Daz framing in metres (g9_build.dsa: face 75 cm at 85 mm, body 380 cm at 50 mm, body target at (eye+5 cm)*0.55)
 face_t = eye + Vector((0, 0, -0.04))

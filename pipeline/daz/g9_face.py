@@ -137,6 +137,73 @@ for _ in range(8):  # smooth over the mesh: the broad shape stays, notches go
 print("MOVED median %.1f mm, largest %.1f mm" % (np.median(np.linalg.norm(moves[region], axis=1)) * 1000,
                                                   np.linalg.norm(moves, axis=1).max() * 1000))
 
+# 3b. likeness against the portrait itself (the 3D fit can leave the face's proportions a few % off, e.g. eyes opened
+# wider, eye corners closer, a heavier jaw): the morphed head's landmarks on a straight-on clay render vs the
+# portrait's, lined up by scale and position only; what differs is shape, moved in the picture's plane (damped)
+photo = os.path.join(head_dir, "front.png")
+like_rounds = int(opt("--likeness", "0"))  # off by default: the owner preferred the plain fit
+if like_rounds and os.path.exists(photo):
+    import subprocess
+    import tempfile
+    PYENV = os.path.join(os.path.dirname(os.path.dirname(HERE)), "tools", "pose-env", "Scripts", "python.exe")
+    lj = os.path.join(tempfile.gettempdir(), f"g9_like_{name}.json")
+    subprocess.run([PYENV, "-I", os.path.join(HERE, "landmarks2d.py"), lj, photo], capture_output=True, text=True)
+    q = json.load(open(lj)).get(photo)
+    if q is None:
+        print("LIKENESS skipped: no face found on", photo)
+    else:
+        Q2 = np.array(q)[:468] * np.array([1.0, -1.0])  # picture y down -> up
+        hfs = [tuple(remap[v] for v in f) for f in head_polys]
+
+        def sim2(a, b):  # similarity a -> b (2D, Umeyama)
+            ma, mb = a.mean(0), b.mean(0)
+            A, B = a - ma, b - mb
+            U, sv, Vt = np.linalg.svd(B.T @ A)
+            dd = np.diag([1, np.sign(np.linalg.det(U @ Vt))])
+            R2 = U @ dd @ Vt
+            s2 = (sv * np.diag(dd)).sum() / (A ** 2).sum()
+            return s2, R2, mb - s2 * (R2 @ ma)
+
+        IOD = (33, 263)
+        best = (np.inf, moves.copy())
+        for rnd in range(like_rounds + 1):
+            ids_m, hits_m = surface_landmarks((P + moves)[used], hfs, head_dir, tag="g9like")
+            ok2 = (ids_m[:468] >= 0) & ~np.isin(np.arange(468), list(INNER_LIPS))
+            A3 = hits_m[:468][ok2]
+            A2 = A3[:, [0, 2]]
+            s2, R2, t2 = sim2(Q2[ok2], A2)
+            T2 = (s2 * (R2 @ Q2[ok2].T)).T + t2
+            res = T2 - A2
+            # a landmark against its neighbours' median: detection noise goes, a region's shift stays
+            nn = np.argsort(np.linalg.norm(A2[:, None] - A2[None], axis=2), axis=1)[:, :9]
+            res = np.median(res[nn], axis=1)
+            iod = np.linalg.norm(hits_m[IOD[0]] - hits_m[IOD[1]])
+            mm = np.linalg.norm(res, axis=1) * 1000
+            print("LIKENESS round %d: %d landmarks, off by median %.2f mm, largest %.2f mm (%.1f%% of the eye span)" % (
+                rnd, len(A2), np.median(mm), mm.max(), 100 * np.median(mm) / 1000 / iod), flush=True)
+            if np.median(mm) < best[0]:
+                best = (float(np.median(mm)), moves.copy())
+            elif np.median(mm) > 1.15 * best[0]:  # worse (a bad detection or an overshoot): back to the best shape
+                print("LIKENESS back to the best round (median %.2f mm)" % best[0])
+                break
+            if np.median(mm) < 0.35 or rnd == like_rounds:
+                break
+            D3 = np.zeros_like(A3)
+            D3[:, 0], D3[:, 2] = res[:, 0], res[:, 1]
+            n3 = np.linalg.norm(D3, axis=1, keepdims=True)
+            D3 = D3 * np.minimum(1, 0.005 / np.maximum(n3, 1e-9)) * 0.7  # at most 5 mm a round, damped
+            step = np.zeros_like(P)
+            step[region] = rbf_moves(A3, D3, (P + moves)[region])
+            step *= w[:, None]
+            for _ in range(6):
+                new = step.copy()
+                for i in region:
+                    if nb[i]:
+                        new[i] = 0.5 * step[i] + 0.5 * step[nb[i]].mean(0)
+                step = new
+            moves += step
+        moves = best[1]
+
 # 4. the DSON morph (Daz's frame: cm, y up, facing +z)
 dm = np.c_[moves[:, 0], moves[:, 2], -moves[:, 1]] * 100.0
 nz = np.where(np.linalg.norm(dm, axis=1) > 1e-4)[0]

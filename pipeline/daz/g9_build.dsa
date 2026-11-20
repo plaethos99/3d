@@ -5,7 +5,7 @@
 //               wear list)>]. The skin preset matching skin.json's base skin is applied before our colour maps.
 var args = App.scriptArgs;
 var morphId = args[0], scenePath = args[1], reportPath = args[2];
-var skinPath = args.length > 3 ? args[3] : "", renderPath = args.length > 4 ? args[4] : "";
+var skinPath = args.length > 3 ? args[3] : "", renderPath = args.length > 4 && args[4] != "-" ? args[4] : "";  // "-": no Iray renders
 var dressPath = args.length > 5 ? args[5] : "";
 var out = new DzFile(reportPath);
 out.open(DzFile.WriteOnly);
