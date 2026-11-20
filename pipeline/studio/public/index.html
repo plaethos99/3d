@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Character Studio</title>
+<link rel="stylesheet" href="/static/style.css">
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Character Studio</div>
+  <ol class="steps" id="steps">
+    <li data-step="scenario">Scenario</li>
+    <li data-step="pick">Pick</li>
+    <li data-step="face">Face &amp; hair</li>
+    <li data-step="model">Model</li>
+    <li data-step="play">Play</li>
+  </ol>
+  <div class="services" id="services" title="Picture services">
+    <span class="svc" data-svc="flow"><i></i>Flow</span>
+    <span class="svc" data-svc="grok"><i></i>Grok</span>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="side">
+    <button class="ghost wide" id="newBtn">+ New character</button>
+    <h3>Characters</h3>
+    <ul id="projects" class="projects"></ul>
+    <h3>Daz cast <span class="hint">Genesis 9</span></h3>
+    <ul id="dazCast" class="projects"></ul>
+  </aside>
+
+  <section class="content">
+    <!-- A Daz character (Genesis 9): face and skin made in Daz, hair grown in Blender -->
+    <div id="viewDaz" class="view" hidden>
+      <h1 id="dazTitle">Character</h1>
+      <p class="lead">Face and skin are made in Daz Studio, the hair is grown in Blender. Move the sliders, then
+        rebuild: <b>Rebuild face</b> makes a new Daz face morph and skin and renders it again (about 8 minutes);
+        <b>Regrow hair</b> only grows the hair again (about 3 minutes).</p>
+      <div class="dazpics" id="dazPics"></div>
+      <div class="dazpanels">
+        <div class="dazpanel">
+          <h3 class="sub">Face <span class="hint">changes on top of the fit to the portrait</span></h3>
+          <div id="dazFace"></div>
+        </div>
+        <div class="dazpanel">
+          <h3 class="sub">Hair <span class="hint">grown in Blender</span></h3>
+          <div id="dazHair"></div>
+          <label class="slider"><span>Colour <b id="dazColourVal"></b></span>
+            <input type="color" id="dazColour"></label>
+          <label class="inline"><input type="checkbox" id="dazColourPortrait"> the portrait's colour</label>
+        </div>
+      </div>
+      <div class="row dazbar">
+        <button id="dazFaceBtn" class="primary">Rebuild face</button>
+        <button id="dazHairBtn" class="ghost">Regrow hair</button>
+        <button id="dazResetBtn" class="ghost">Undo my changes</button>
+        <span class="hint" id="dazNote"></span>
+      </div>
+      <div class="dazjob" id="dazJob" hidden>
+        <div><b id="dazJobState"></b> <span class="hint" id="dazJobSteps"></span></div>
+        <pre id="dazJobLog"></pre>
+      </div>
+    </div>
+    <!-- Scenario -->
+    <div id="viewScenario" class="view">
+      <h1>Describe the character</h1>
+      <p class="lead">Who are they, and what do they look like? Age, background, hair, the role in your story.
+        The studio turns it into a portrait prompt and makes sample pictures to choose from.</p>
+      <label class="field">
+        <span>Scenario</span>
+        <textarea id="scenario" rows="4" placeholder="e.g. a 35-year-old Indian schoolteacher with long black hair in a braid, warm and patient"></textarea>
+      </label>
+      <div class="row">
+        <button id="promptBtn" class="ghost">Write the prompt</button>
+      </div>
+      <label class="field" id="promptField" hidden>
+        <span>Prompt <em>(edit if you like)</em></span>
+        <textarea id="prompt" rows="5"></textarea>
+      </label>
+      <div class="row" id="genRow" hidden>
+        <label class="inline">Pictures
+          <select id="count"><option>2</option><option selected>4</option><option>6</option><option>8</option></select>
+        </label>
+        <label class="inline"><input type="checkbox" id="useFlow" checked> Flow</label>
+        <label class="inline"><input type="checkbox" id="useGrok" checked> Grok</label>
+        <button id="genBtn" class="primary">Make sample pictures</button>
+      </div>
+      <p class="error" id="scenarioError"></p>
+    </div>
+
+    <!-- Pick -->
+    <div id="viewPick" class="view" hidden>
+      <div class="titlebar">
+        <div>
+          <h1 id="pickTitle">Pick a picture</h1>
+          <p class="lead" id="pickScenario"></p>
+        </div>
+        <div class="row">
+          <button id="moreBtn" class="ghost">More pictures</button>
+        </div>
+      </div>
+      <details class="prompt-box">
+        <summary>Prompt</summary>
+        <textarea id="pickPrompt" rows="4"></textarea>
+        <p class="hint">Changes apply to the next “More pictures”.</p>
+      </details>
+      <div class="gallery" id="gallery"></div>
+      <div class="pickbar" id="pickbar" hidden>
+        <img id="pickThumb" alt="">
+        <div>
+          <strong>Chosen picture</strong>
+          <p class="hint" id="pickNext">Next: map this face and hair onto a 3D body.</p>
+        </div>
+        <button id="useBtn" class="primary">Use this picture</button>
+      </div>
+      <p class="error" id="pickError"></p>
+    </div>
+
+    <!-- Face & hair -->
+    <div id="viewFace" class="view" hidden>
+      <div class="titlebar">
+        <div>
+          <h1>Face &amp; hair</h1>
+          <p class="lead" id="faceScenario"></p>
+        </div>
+        <button class="ghost" id="backToPick">← Pictures</button>
+      </div>
+
+      <div id="faceSetup" hidden>
+        <div class="setup">
+          <img id="facePicked" class="picked" alt="Chosen picture">
+          <div class="setup-body">
+            <div class="row">
+              <label class="inline">This is a
+                <select id="gender"><option value="female">woman / girl</option><option value="male">man / boy</option></select>
+              </label>
+              <label class="inline">Turned views made by
+                <select id="clipService"><option value="flow">Flow (Veo)</option><option value="grok">Grok</option></select>
+              </label>
+            </div>
+            <h3 class="sub">Hairstyle <span class="hint" id="hairChosenName"></span></h3>
+            <div class="hairs" id="hairsSetup"></div>
+            <div class="row">
+              <button id="faceBtn" class="primary">Map face and hair</button>
+              <span class="hint">About 15 minutes. You can leave this page; it keeps going.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="faceProgress" hidden>
+        <p class="lead" id="progressHead"></p>
+        <ol class="progress" id="progressSteps"></ol>
+      </div>
+
+      <div id="faceResult" hidden>
+        <figure class="result">
+          <img id="compareImg" alt="The photo beside the character's face and body">
+          <figcaption>Photo · the character's face · the whole character</figcaption>
+        </figure>
+        <h3 class="sub">Try another hairstyle <span class="hint">about a minute each</span></h3>
+        <div class="hairs" id="hairsResult"></div>
+        <div class="row">
+          <button id="hairBtn" class="ghost" disabled>Apply hairstyle</button>
+          <button id="acceptBtn" class="primary">Accept face &amp; hair</button>
+        </div>
+        <p class="hint" id="acceptNote"></p>
+      </div>
+
+      <div class="row" id="toModelRow" hidden>
+        <button id="toModelBtn" class="primary">Next: the 3D model →</button>
+      </div>
+
+      <div id="faceFailed" hidden>
+        <p class="error" id="faceErrorText"></p>
+        <button id="retryBtn" class="primary">Try again</button>
+      </div>
+      <p class="error" id="faceError"></p>
+    </div>
+
+    <!-- Model -->
+    <div id="viewModel" class="view" hidden>
+      <div class="titlebar">
+        <div>
+          <h1>Model</h1>
+          <p class="lead">Shape the face and body, choose the age and the costume. Face and body sliders move the model
+            at once; age, height and costume (and the clothes' fit) change when you press Apply.</p>
+        </div>
+        <button class="ghost" id="backToFace">← Face &amp; hair</button>
+      </div>
+      <div id="modelStart" hidden>
+        <button id="makeModelBtn" class="primary">Make the 3D model</button>
+        <span class="hint">About 2 minutes: hair cards, baked textures and the sliders.</span>
+      </div>
+      <div id="modelProgress" hidden>
+        <p class="lead" id="modelProgressHead"></p>
+        <ol class="progress" id="modelProgressSteps"></ol>
+      </div>
+      <div id="modelFailed" hidden>
+        <p class="error" id="modelErrorText"></p>
+        <button id="modelRetryBtn" class="primary">Try again</button>
+      </div>
+      <div class="studio" id="modelStudio" hidden>
+        <div class="stage" id="stage">
+          <div class="stage-note" id="stageNote" hidden>Clothes are hidden while the body differs from the applied one.
+            Apply to refit them.</div>
+        </div>
+        <div class="panel">
+          <div class="tabs" role="tablist">
+            <button class="tab on" data-tab="face" role="tab">Face</button>
+            <button class="tab" data-tab="body" role="tab">Body</button>
+            <button class="tab" data-tab="age" role="tab">Age &amp; height</button>
+            <button class="tab" data-tab="hair" role="tab">Hair</button>
+            <button class="tab" data-tab="costume" role="tab">Costume</button>
+          </div>
+          <div class="tabbody" id="tab-face"></div>
+          <div class="tabbody" id="tab-body" hidden></div>
+          <div class="tabbody" id="tab-age" hidden>
+            <label class="slider"><span>Age <b id="ageVal"></b></span>
+              <input type="range" id="ageSlider" min="2" max="70" step="1"></label>
+            <p class="hint">Below 20 the child body shapes are used (2, 4, 6, 9, 12, 15 years, blended between).</p>
+            <label class="slider"><span>Height <b id="heightVal"></b></span>
+              <input type="range" id="heightSlider" min="80" max="200" step="1"></label>
+          </div>
+          <div class="tabbody" id="tab-hair" hidden>
+            <h3 class="sub">Long hair</h3>
+            <div class="styles" id="longPresets"></div>
+            <h3 class="sub">Hairstyle</h3>
+            <div class="hairs" id="hairGrid"></div>
+            <h3 class="sub">Length &amp; waves</h3>
+            <label class="slider"><span>Length <b id="hairLenVal"></b></span>
+              <input type="range" id="hairLen" min="0" max="100" step="1"></label>
+            <p class="hint">0 keeps the hairstyle's own length; up to 100 cm (waist length and beyond) from the roots.</p>
+            <label class="slider"><span>Waves <b id="hairWaveVal"></b></span>
+              <input type="range" id="hairWave" min="0" max="1" step="0.05"></label>
+            <h3 class="sub">Hair colour</h3>
+            <label class="slider"><span>Lightness <b id="hairLightVal"></b></span>
+              <input type="range" id="hairLight" min="0" max="1" step="0.01"></label>
+            <label class="slider"><span>Redness <b id="hairRedVal"></b></span>
+              <input type="range" id="hairRed" min="0" max="1" step="0.01"></label>
+            <p class="hint">Hair changes show after Apply.</p>
+          </div>
+          <div class="tabbody" id="tab-costume" hidden>
+            <h3 class="sub">Indian</h3>
+            <div class="styles" id="indianStyles"></div>
+            <div id="indianOptions" hidden>
+              <label class="colorrow"><input type="color" id="indMain"><span>Main colour</span></label>
+              <label class="colorrow"><input type="color" id="indAccent"><span id="indAccentLabel">Accent colour</span></label>
+              <p class="hint">Print</p>
+              <div class="hairs" id="indPrints"></div>
+            </div>
+            <h3 class="sub">Outfit</h3>
+            <div class="hairs" id="outfitGrid"></div>
+            <h3 class="sub">Shoes</h3>
+            <div class="hairs" id="footGrid"></div>
+            <h3 class="sub">Colours</h3>
+            <div id="colorList"></div>
+          </div>
+        </div>
+      </div>
+      <div class="pickbar" id="applyBar" hidden>
+        <div><strong id="applyCount"></strong><p class="hint" id="applyHint"></p></div>
+        <button id="resetBtn" class="ghost">Reset</button>
+        <button id="applyBtn" class="primary">Apply changes</button>
+      </div>
+      <p class="error" id="modelError"></p>
+    </div>
+  </section>
+</main>
+
+<div class="viewer" id="viewer" hidden>
+  <img id="viewerImg" alt="">
+</div>
+<script src="/static/app.js"></script>
+<script type="module" src="/static/daz.js"></script>
+</body>
+</html>
